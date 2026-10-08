@@ -44,6 +44,7 @@ export default function Home() {
   const [showPaymentNotice, setShowPaymentNotice] = useState(false);
   const [confirmedOrderTotal, setConfirmedOrderTotal] = useState(0);
   const [confirmedPickupDate, setConfirmedPickupDate] = useState("");
+  const [confirmedPickupStores, setConfirmedPickupStores] = useState<{ name: string; address: string }[]>([]);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [refund, setRefund] = useState<"all" | "partial">("partial");
   const [refundBank, setRefundBank] = useState("");
@@ -213,6 +214,11 @@ export default function Home() {
   }
   const cartItems = catalog.filter((product) => cart[product.id]);
   const total = cartItems.reduce((sum, product) => sum + product.price * cart[product.id], 0);
+  const reservationPickupStores = [...new Map(cartItems.map((product) => {
+    const storeId = product.storeId ?? product.store;
+    const store = stores.find((entry) => entry.id === storeId);
+    return [storeId, { name: store?.name ?? product.store, address: store?.address ?? "가게 주소를 확인하지 못했어요." }] as const;
+  })).values()];
   const storeCatalog = useMemo(() => {
     const groups = new Map<string, { id: string; name: string; area: string; products: Product[] }>();
     for (const product of catalog) {
@@ -390,6 +396,7 @@ export default function Home() {
       if (error) { notify(error.message); return; }
       setConfirmedOrderTotal(total);
       setConfirmedPickupDate(soonestDate);
+      setConfirmedPickupStores(reservationPickupStores);
       setCart({}); setCheckout(false); setShowFinalReservationConfirm(false); setShowPaymentNotice(true);
     } finally { setSubmitting(false); }
   }
@@ -464,7 +471,7 @@ export default function Home() {
       <div className="saved-order-details"><span>{orderDetailsSaved ? "저장된 정보가 다음 주문에 자동으로 입력돼요." : "다음 주문에 다시 쓰려면 정보를 저장해 주세요."}</span><div><button type="button" disabled={savingOrderDetails} onClick={() => void saveOrderDetails()}>{savingOrderDetails ? "저장 중…" : orderDetailsSaved ? "정보 업데이트" : "정보 저장"}</button>{orderDetailsSaved && <button type="button" className="saved-details-delete" disabled={savingOrderDetails} onClick={() => void removeSavedOrderDetails()}>저장 정보 삭제</button>}</div></div>
       <div className="mobile-total"><span>결제 예정 금액</span><b>{won(total)}원</b></div><button className="place-order-button" disabled={submitting || !paymentAccount} onClick={() => setShowFinalReservationConfirm(true)}>{!paymentAccount ? "입금 계좌 설정 대기" : "예약하고 입금하기"}<ArrowRight size={17}/></button>
     </section></div>}
-    {showFinalReservationConfirm && <div className="mobile-modal-backdrop" onClick={() => setShowFinalReservationConfirm(false)}><section className="login-required-dialog reservation-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reservation-confirm-title" onClick={(event) => event.stopPropagation()}><button className="login-required-close" onClick={() => setShowFinalReservationConfirm(false)} aria-label="닫기"><X size={19}/></button><span className="login-required-icon"><Clock3 size={21}/></span><h2 id="reservation-confirm-title">예약 내용을 확인해 주세요</h2><p>픽업 날짜는 <b>{soonestDate}</b>입니다.<br/>총 {count}개, {won(total)}원으로 예약할까요?</p><button className="place-order-button" disabled={submitting} onClick={() => void placeOrder()}>{submitting ? "예약 확정 중…" : "확인하기"}<ArrowRight size={17}/></button><button className="reservation-back-button" onClick={() => setShowFinalReservationConfirm(false)}>돌아가서 수정하기</button></section></div>}
-    {showPaymentNotice && <div className="mobile-modal-backdrop" onClick={() => { setShowPaymentNotice(false); window.location.assign("/orders"); }}><section className="login-required-dialog payment-notice-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-notice-title" onClick={(event) => event.stopPropagation()}><span className="login-required-icon"><Check size={21}/></span><h2 id="payment-notice-title">예약이 확정됐어요</h2><p>픽업 날짜: <b>{confirmedPickupDate}</b><br/>예약 금액: <b>{won(confirmedOrderTotal)}원</b></p><div className="checkout-transfer-account"><b>{paymentAccount?.bank_name} {paymentAccount?.account_number}</b><span>예금주 {paymentAccount?.account_holder}</span>{paymentAccount?.memo && <small>{paymentAccount.memo}</small>}</div><p>위 계좌로 입금해 주세요. 입금 확인 후 주문 상태가 갱신됩니다.</p><button className="place-order-button" onClick={() => window.location.assign("/orders")}>내 주문 확인하기<ArrowRight size={17}/></button></section></div>}
+    {showFinalReservationConfirm && <div className="mobile-modal-backdrop" onClick={() => setShowFinalReservationConfirm(false)}><section className="login-required-dialog reservation-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reservation-confirm-title" onClick={(event) => event.stopPropagation()}><button className="login-required-close" onClick={() => setShowFinalReservationConfirm(false)} aria-label="닫기"><X size={19}/></button><span className="login-required-icon"><Clock3 size={21}/></span><h2 id="reservation-confirm-title">예약 내용을 확인해 주세요</h2><p>픽업 날짜는 <b>{soonestDate}</b>입니다.<br/>총 {count}개, {won(total)}원으로 예약할까요?</p><div className="reservation-pickup-stores"><b>픽업 가게</b>{reservationPickupStores.map((store) => <div key={store.name}><strong>{store.name}</strong><span>{store.address}</span></div>)}</div><button className="place-order-button" disabled={submitting} onClick={() => void placeOrder()}>{submitting ? "예약 확정 중…" : "확인하기"}<ArrowRight size={17}/></button><button className="reservation-back-button" onClick={() => setShowFinalReservationConfirm(false)}>돌아가서 수정하기</button></section></div>}
+    {showPaymentNotice && <div className="mobile-modal-backdrop" onClick={() => { setShowPaymentNotice(false); window.location.assign("/orders"); }}><section className="login-required-dialog payment-notice-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-notice-title" onClick={(event) => event.stopPropagation()}><span className="login-required-icon"><Check size={21}/></span><h2 id="payment-notice-title">예약이 확정됐어요</h2><p>픽업 날짜: <b>{confirmedPickupDate}</b><br/>예약 금액: <b>{won(confirmedOrderTotal)}원</b></p><div className="reservation-pickup-stores"><b>픽업 가게</b>{confirmedPickupStores.map((store) => <div key={store.name}><strong>{store.name}</strong><span>{store.address}</span></div>)}</div><div className="checkout-transfer-account"><b>{paymentAccount?.bank_name} {paymentAccount?.account_number}</b><span>예금주 {paymentAccount?.account_holder}</span>{paymentAccount?.memo && <small>{paymentAccount.memo}</small>}</div><p>위 계좌로 입금해 주세요. 입금 확인 후 주문 상태가 갱신됩니다.</p><button className="place-order-button" onClick={() => window.location.assign("/orders")}>내 주문 확인하기<ArrowRight size={17}/></button></section></div>}
   </main>;
 }
