@@ -1,87 +1,12 @@
--- Optional, first-party growth analytics. No anonymous identifiers or event metadata.
-create extension if not exists pg_cron;
+-- Exclude operator accounts and the explicitly excluded admin account from all customer analytics.
 
-alter table public.profiles
-  add column if not exists analytics_consent boolean not null default false,
-  add column if not exists analytics_consent_updated_at timestamptz;
-revoke update on public.profiles from authenticated;
-grant update (nickname, analytics_consent, analytics_consent_updated_at) on public.profiles to authenticated;
-
-create table if not exists public.acquisition_surveys (
-  user_id uuid primary key references public.profiles(id) on delete cascade,
-  response_status text not null check (response_status in ('answered', 'skipped')),
-  channel text check (channel in ('friend_referral', 'kakao_group', 'search', 'social_community', 'paid_ad', 'store_offline', 'other', 'unknown')),
-  responded_at timestamptz not null default now(),
-  constraint acquisition_response_channel check (
-    (response_status = 'answered' and channel is not null) or
-    (response_status = 'skipped' and channel is null)
-  )
-);
-alter table public.acquisition_surveys enable row level security;
-create policy "users read own acquisition survey" on public.acquisition_surveys
-  for select to authenticated using (user_id = (select auth.uid()) or public.is_operator());
-create policy "users answer acquisition survey once after 48 hours" on public.acquisition_surveys
-  for insert to authenticated with check (
-    user_id = (select auth.uid()) and
-    exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.created_at <= now() - interval '48 hours')
-  );
-grant select, insert on public.acquisition_surveys to authenticated;
-
-create table if not exists public.analytics_events (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  event_name text not null check (event_name in ('store_detail_opened', 'add_to_cart', 'checkout_started')),
-  store_id uuid references public.stores(id) on delete set null,
-  product_id uuid references public.products(id) on delete set null,
-  created_at timestamptz not null default now()
-);
-create index if not exists analytics_events_created_at_idx on public.analytics_events(created_at);
-create index if not exists analytics_events_user_created_idx on public.analytics_events(user_id, created_at);
-alter table public.analytics_events enable row level security;
-create policy "operators read analytics events" on public.analytics_events
-  for select to authenticated using (public.is_operator());
-create policy "consenting users record own analytics events" on public.analytics_events
+drop policy if exists "consenting users record own analytics events" on public.analytics_events;
+create policy "consenting customers record own analytics events" on public.analytics_events
   for insert to authenticated with check (
     user_id = (select auth.uid()) and
     exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.role = 'customer'
       and p.id <> 'f022cd30-1a39-457b-adaf-48f3c109965d'::uuid and p.analytics_consent)
   );
-grant select, insert on public.analytics_events to authenticated;
-
-create table if not exists public.marketing_spend (
-  id uuid primary key default gen_random_uuid(),
-  week_start date not null check (extract(isodow from week_start) = 1),
-  campaign text not null check (length(trim(campaign)) between 1 and 100),
-  amount integer not null check (amount > 0),
-  created_by uuid not null references public.profiles(id),
-  created_at timestamptz not null default now()
-);
-alter table public.marketing_spend enable row level security;
-create policy "operators manage marketing spend" on public.marketing_spend
-  for all to authenticated using (public.is_operator()) with check (public.is_operator());
-grant select, insert, update, delete on public.marketing_spend to authenticated;
-
-create or replace function public.prune_analytics_events() returns bigint
-language plpgsql security definer set search_path = '' as $$
-declare removed bigint;
-begin
-  delete from public.analytics_events where created_at < now() - interval '12 months';
-  get diagnostics removed = row_count;
-  return removed;
-end;
-$$;
-revoke all on function public.prune_analytics_events() from public, anon, authenticated;
-do $$
-begin
-  if to_regclass('cron.job') is not null then
-    execute $schedule$
-      select cron.schedule('mapsosa-prune-analytics-events', '0 3 * * *',
-        'select public.prune_analytics_events()')
-      where not exists (select 1 from cron.job where jobname = 'mapsosa-prune-analytics-events')
-    $schedule$;
-  end if;
-end;
-$$;
 
 create or replace function public.operator_weekly_growth_metrics(p_weeks integer default 16)
 returns table (
