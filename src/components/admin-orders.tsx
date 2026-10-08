@@ -11,7 +11,7 @@ type Refund = { id: string; reason: string; amount: number; message: string; tra
 type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; refund_preference: "all_or_nothing" | "partial"; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: Line[]; refunds: Refund[] };
 type StoreOption = { id: string; name: string };
 type Transfer = { id: string; pickup_date: string | null; type: "deposit" | "sales" | "recovery"; amount: number; transferred_at: string | null; memo: string; stores: { name: string } | null };
-type ProductTotal = { id: string; type: "slot" | "instant"; slotSize: number | null; name: string; specification: string; store: string; requested: number; paid: number; unpaid: number; confirmed: number; slotCalculated: boolean };
+type ProductTotal = { id: string; type: "slot" | "instant"; slotSize: number | null; name: string; specification: string; storeId: string; store: string; requested: number; paid: number; unpaid: number; confirmed: number; amount: number; amountReady: boolean; slotCalculated: boolean };
 
 const statusText: Record<string, string> = { awaiting_payment: "입금 대기", cancelled_unpaid: "미입금 취소", late_payment_refund: "늦은 입금 환불", paid_recruiting: "입금 확인 · 모집 중", slot_confirmed: "슬롯 확정", store_checking: "가게 물량 확인 중", partially_refunded: "부분 환불", refunded: "환불 완료", pickup_ready: "확정 · 확인서 발급", picked_up: "픽업 완료", auto_completed: "자동 완료" };
 const activeStatuses = new Set(["awaiting_payment", "paid_recruiting", "slot_confirmed", "store_checking", "pickup_ready", "partially_refunded"]);
@@ -92,18 +92,36 @@ export function AdminOrders() {
   for (const order of activeOrders) for (const line of order.order_items) {
     const key = `${line.products?.id ?? line.id}`;
     const type = line.products?.type ?? "instant";
-    const item = summary.get(key) ?? { id: line.products?.id ?? key, type, slotSize: line.products?.slot_size ?? null, name: line.products?.name ?? "상품", specification: line.products?.specification ?? "", store: line.products?.stores?.name ?? "가게 미지정", requested: 0, paid: 0, unpaid: 0, confirmed: 0, slotCalculated: type !== "slot" };
+    const item = summary.get(key) ?? { id: line.products?.id ?? key, type, slotSize: line.products?.slot_size ?? null, name: line.products?.name ?? "상품", specification: line.products?.specification ?? "", storeId: line.products?.stores?.id ?? "unassigned", store: line.products?.stores?.name ?? "가게 미지정", requested: 0, paid: 0, unpaid: 0, confirmed: 0, amount: 0, amountReady: true, slotCalculated: type !== "slot" };
     item.requested += line.quantity;
     if (order.paid_at || !["awaiting_payment"].includes(order.status)) {
       item.paid += line.quantity;
       if (type === "slot") {
-        if (line.proposed_quantity === null && line.confirmed_quantity === null) item.slotCalculated = false;
-        else item.confirmed += line.proposed_quantity ?? line.confirmed_quantity ?? 0;
-      } else item.confirmed += line.proposed_quantity ?? line.quantity;
+        if (line.proposed_quantity === null && line.confirmed_quantity === null) { item.slotCalculated = false; item.amountReady = false; }
+        else {
+          const quantity = line.confirmed_quantity ?? line.proposed_quantity ?? 0;
+          item.confirmed += quantity;
+          item.amount += quantity * line.unit_price;
+          if (line.confirmed_quantity === null) item.amountReady = false;
+        }
+      } else {
+        const quantity = line.confirmed_quantity ?? lineQuantities[order.id]?.[line.id] ?? line.quantity;
+        item.confirmed += quantity;
+        item.amount += quantity * line.unit_price;
+        if (line.confirmed_quantity === null) item.amountReady = false;
+      }
     } else item.unpaid += line.quantity;
     summary.set(key, item);
   }
   const productTotals = [...summary.values()].sort((a, b) => a.store.localeCompare(b.store) || a.name.localeCompare(b.name));
+  const storeTotals = [...productTotals.reduce((groups, item) => {
+    const group = groups.get(item.storeId) ?? { id: item.storeId, name: item.store, products: [] as ProductTotal[], amount: 0, amountReady: true };
+    group.products.push(item);
+    group.amount += item.amount;
+    group.amountReady = group.amountReady && item.amountReady;
+    groups.set(item.store, group);
+    return groups;
+  }, new Map<string, { id: string; name: string; products: ProductTotal[]; amount: number; amountReady: boolean }>()).values()].sort((a, b) => a.name.localeCompare(b.name));
   const paymentOrders = orders.filter((order) => order.status === "awaiting_payment" || ["paid_recruiting", "slot_confirmed", "store_checking"].includes(order.status) || Boolean(order.cancellation_requested_at) || order.refunds?.some((refund) => !refund.transferred_at));
   const refundQueue = orders.flatMap((order) => {
     const orderHasShortage = order.order_items.some((line) => {
@@ -326,12 +344,13 @@ export function AdminOrders() {
     {tab === "summary" ? <>
       <div className="ops-metrics"><article><span>유효 주문</span><b>{activeOrders.length}건</b><small>{won(activeOrders.reduce((sum, order) => sum + order.total, 0))}원</small></article><article><span>입금 확인</span><b>{paidOrders.filter((order) => activeStatuses.has(order.status)).length}건</b><small>{won(paidOrders.filter((order) => activeStatuses.has(order.status)).reduce((sum, order) => sum + order.total, 0))}원</small></article><article><span>입금 대기</span><b>{orders.filter((order) => order.status === "awaiting_payment").length}건</b><small>{won(orders.filter((order) => order.status === "awaiting_payment").reduce((sum, order) => sum + order.total, 0))}원</small></article></div>
       <section className="admin-card"><div className="ops-date-title"><div><h2>슬롯 모집량 확정</h2><p>가게 재고와 별개로 입금 완료 주문만 접수 순서대로 확정합니다.</p></div></div><p className="admin-help">슬롯 단위와 주문 수량은 상품 판매 단위로 셉니다. 예를 들어 2과 한 팩 상품 1개 주문은 슬롯 수량 1개예요. 슬롯 확정 후에는 확정 수량만 가게 물량 확인 대상으로 넘어갑니다. 경계 주문은 고객이 고른 환불 방식대로 처리하고, 한 세트도 못 채운 상품은 전액 환불 대상입니다.</p><button className="ops-action primary" style={{ marginTop: 10 }} onClick={() => void calculateSlotQuantities()}><PackageCheck size={15}/>슬롯 확정 · 선착순 배분</button></section>
-      <section className="admin-card"><h2>가게별 · 상품별 주문 총량</h2>{loading ? <div className="admin-empty">집계 중…</div> : productTotals.length ? <div className="ops-summary-list">{productTotals.map((item) => {
+      <section className="admin-card"><h2>청과점별 상품 주문 총량 · 보낼 금액</h2><p className="admin-help">청과점별로 상품 수량을 모아 표시합니다. 금액은 주문에 저장된 판매 단가 × 가게 확인 대상 수량의 합계이며, 최종 수량 확정 전에는 예상 금액으로 표시돼요. 입금 확인 전 주문은 금액 합계에서 제외합니다.</p>{loading ? <div className="admin-empty">집계 중…</div> : storeTotals.length ? <div className="ops-summary-list">{storeTotals.map((store) => <article className="supply-summary-row" key={store.id}><div><b>{store.name}</b><span className="store-order-breakdown">{store.products.map((item) => {
         const slotSize = item.slotSize ?? 1;
         const confirmedSets = Math.floor(item.confirmed / slotSize);
         const possibleSets = Math.floor(item.paid / slotSize);
-        return <article className="supply-summary-row" key={`${item.store}-${item.id}`}><div><b>{item.name} · {item.specification}</b><small>{item.store}{item.type === "slot" ? ` · 슬롯 단위 ${slotSize}개` : " · 즉시구매형"}</small><span><b>{item.type === "slot" ? item.slotCalculated ? `슬롯 확정량: ${slotQuantityExpression(item.specification, slotSize, confirmedSets)}` : `입금 완료 ${item.paid}개 · 최대 확정 가능: ${slotQuantityExpression(item.specification, slotSize, possibleSets)}` : `가게 확인 대상: ${productQuantityExpression(item.specification, item.confirmed)}`}</b><small>{item.type === "slot" ? item.slotCalculated ? `가게 확인 제외: ${productQuantityExpression(item.specification, Math.max(0, item.paid - item.confirmed))} · 환불 정리 탭에서 대상 확인` : `주문 접수 ${item.requested}개 · 입금 대기 ${item.unpaid}개` : `주문 접수 ${item.requested}개 · 입금 대기 ${item.unpaid}개`}</small></span></div></article>;
-      })}</div> : <div className="admin-empty">이 픽업일의 주문이 없어요.</div>}</section>
+        const quantityText = item.type === "slot" ? item.slotCalculated ? slotQuantityExpression(item.specification, slotSize, confirmedSets) : `슬롯 확정 대기 · ${slotQuantityExpression(item.specification, slotSize, possibleSets)} 가능` : productQuantityExpression(item.specification, item.confirmed);
+        return <span className="store-order-product" key={item.id}><b>{item.name}</b><small>{quantityText} · {won(item.amount)}원</small>{item.type === "slot" && item.slotCalculated && <small>가게 확인 제외: {productQuantityExpression(item.specification, Math.max(0, item.paid - item.confirmed))}</small>}{item.unpaid > 0 && <small>입금 대기 주문 {productQuantityExpression(item.specification, item.unpaid)} (금액 합계 제외)</small>}</span>;
+      })}</span><small>{store.products.every((item) => item.paid === 0) ? "입금 확인된 주문 없음" : store.amountReady ? "최종 확정 수량 기준 · 저장된 판매 단가 합계" : "현재 확인 대상 기준 예상 금액 · 최종 수량 확정 후 금액 갱신"}</small></div><strong className="store-order-total"><small>{store.products.every((item) => item.paid === 0) ? "계산 대기" : store.amountReady ? "청과점에 보낼 금액" : "예상 보낼 금액"}</small>{won(store.amount)}원</strong></article>)}</div> : <div className="admin-empty">이 픽업일의 주문이 없어요.</div>}</section>
     </> : tab === "payment" ? <section className="admin-card"><h2>입금 확인 작업</h2><p className="admin-help">주문별 입금을 먼저 확인해 주세요. 슬롯형 상품은 슬롯 확정 후 확정 수량만 가게 물량 확인 대상으로 넘어오며, 실제 준비 가능 수량에 맞춰 주문별 최종 수량을 입력합니다.</p>{loading ? <div className="admin-empty">주문을 불러오고 있어요…</div> : paymentOrders.length ? <div className="ops-order-list">{paymentOrders.map((order) => <article className="ops-order-card" key={order.id}>
       <div className="ops-order-head"><div><b>{order.order_number}</b><small>{order.profiles?.nickname ?? "고객"} · {order.depositor_name} · {new Date(order.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></div><span className={`order-status ${order.paid_at ? "ready" : ""}`}>{statusText[order.status] ?? order.status}</span></div>
       <div className="ops-order-lines">{order.order_items.map((line) => <div key={line.id}><span>{line.products?.name ?? "상품"} · {line.quantity}개</span><small>{line.products?.stores?.name ?? "가게 미지정"}</small></div>)}</div>
