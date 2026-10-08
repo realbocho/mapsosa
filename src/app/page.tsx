@@ -133,10 +133,8 @@ export default function Home() {
       if (!delta) delta = 7;
       date.setDate(date.getDate() + delta);
       const pickupDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      const { data: round } = await supabase.from("pickup_rounds").select("id").eq("pickup_date", pickupDate).maybeSingle();
-      if (!round) { notify("아직 해당 픽업 회차가 열리지 않았어요"); return; }
       const { data, error } = await supabase.rpc("create_order", {
-        p_round_id: round.id,
+        p_pickup_date: pickupDate,
         p_refund_preference: refund === "partial" ? "partial" : "all_or_nothing",
         p_refund_bank: refundBank,
         p_refund_account: refundAccount,
