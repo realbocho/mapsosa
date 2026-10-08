@@ -8,7 +8,7 @@ import { won } from "@/lib/products";
 
 type Line = { id: string; quantity: number; proposed_quantity: number | null; confirmed_quantity: number | null; refund_quantity: number; unit_price: number; products: { id: string; name: string; specification: string; type: "slot" | "instant"; slot_size: number | null; stores: { id: string; name: string } | null } | null };
 type Refund = { id: string; reason: string; amount: number; message: string; transferred_at: string | null };
-type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; payment_due_at: string; paid_at: string | null; created_at: string; depositor_name: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; refund_preference: "all_or_nothing" | "partial"; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: Line[]; refunds: Refund[] };
+type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; depositor_name: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; refund_preference: "all_or_nothing" | "partial"; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: Line[]; refunds: Refund[] };
 type StoreOption = { id: string; name: string };
 type Transfer = { id: string; pickup_date: string | null; type: "deposit" | "sales" | "recovery"; amount: number; transferred_at: string | null; memo: string; stores: { name: string } | null };
 type ProductTotal = { name: string; specification: string; store: string; requested: number; paid: number; unpaid: number };
@@ -40,7 +40,7 @@ export function AdminOrders() {
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
     const [ordersResult, storesResult, transfersResult] = await Promise.all([
-      supabase.from("orders").select("id,order_number,pickup_date,total,status,payment_due_at,paid_at,created_at,depositor_name,payment_bank,payment_account,payment_account_holder,refund_preference,cancellation_requested_at,profiles(nickname),order_items(id,quantity,proposed_quantity,confirmed_quantity,refund_quantity,unit_price,products(id,name,specification,type,slot_size,stores(id,name))),refunds(id,reason,amount,message,transferred_at)").eq("pickup_date", pickupDate).order("created_at", { ascending: true }),
+      supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,created_at,depositor_name,payment_bank,payment_account,payment_account_holder,refund_preference,cancellation_requested_at,profiles(nickname),order_items(id,quantity,proposed_quantity,confirmed_quantity,refund_quantity,unit_price,products(id,name,specification,type,slot_size,stores(id,name))),refunds(id,reason,amount,message,transferred_at)").eq("pickup_date", pickupDate).order("created_at", { ascending: true }),
       supabase.from("stores").select("id,name").order("name"),
       supabase.from("store_transfers").select("id,pickup_date,type,amount,transferred_at,memo,stores(name)").eq("pickup_date", pickupDate).order("created_at", { ascending: false }),
     ]);

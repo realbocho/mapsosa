@@ -72,7 +72,7 @@ declare
   v_subtotal integer := 0;
   v_order_id uuid;
   v_order_number text;
-  v_due_at timestamptz := now() + interval '1 hour';
+  v_due_at timestamptz := now();
   v_deadline timestamptz;
   v_payment public.payment_settings%rowtype;
 begin

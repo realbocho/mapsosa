@@ -35,7 +35,7 @@ declare
   v_subtotal integer := 0;
   v_order_id uuid;
   v_order_number text;
-  v_due_at timestamptz := now() + interval '1 hour';
+  v_due_at timestamptz := now();
 begin
   if v_user_id is null then raise exception '로그인이 필요합니다.' using errcode = '42501'; end if;
   if p_pickup_date is null or p_pickup_date < (now() at time zone 'Asia/Seoul')::date or extract(isodow from p_pickup_date) not in (3, 6) then

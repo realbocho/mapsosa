@@ -83,7 +83,7 @@ create table public.orders (
   service_fee integer not null default 0 check (service_fee >= 0),
   total integer not null default 0 check (total >= 0),
   status public.order_status not null default 'awaiting_payment',
-  payment_due_at timestamptz not null default (now() + interval '1 hour'),
+  payment_due_at timestamptz not null default now(),
   paid_at timestamptz,
   cancelled_at timestamptz,
   created_at timestamptz not null default now(),
@@ -155,7 +155,6 @@ create table public.store_transfers (
 );
 
 create index orders_user_created_idx on public.orders(user_id, created_at desc);
-create index orders_due_status_idx on public.orders(status, payment_due_at);
 create index order_items_product_idx on public.order_items(product_id, created_at);
 create index products_store_active_idx on public.products(store_id, active);
 create index rounds_pickup_date_idx on public.pickup_rounds(pickup_date);
@@ -180,7 +179,7 @@ declare
   v_subtotal integer := 0;
   v_order_id uuid;
   v_order_number text;
-  v_due_at timestamptz := now() + interval '1 hour';
+  v_due_at timestamptz := now();
 begin
   if v_user_id is null then raise exception '로그인이 필요합니다.' using errcode = '42501'; end if;
   if length(trim(p_refund_bank)) = 0 or length(trim(p_refund_account)) < 5 or length(trim(p_refund_account_holder)) = 0 or length(trim(p_depositor_name)) = 0 then
@@ -219,30 +218,6 @@ end;
 $$;
 revoke all on function public.create_order(uuid, public.refund_preference, text, text, text, text, jsonb) from public, anon;
 grant execute on function public.create_order(uuid, public.refund_preference, text, text, text, text, jsonb) to authenticated;
-
-create function public.cancel_expired_orders() returns integer language plpgsql security definer set search_path = '' as $$
-declare
-  v_count integer;
-begin
-  update public.orders
-  set status = 'cancelled_unpaid', cancelled_at = now(), updated_at = now()
-  where status = 'awaiting_payment' and paid_at is null and payment_due_at <= now();
-  get diagnostics v_count = row_count;
-  return v_count;
-end;
-$$;
-revoke all on function public.cancel_expired_orders() from public, anon, authenticated;
-
--- Supabase Cron (pg_cron) runs the one-hour transfer deadline check every minute.
-create extension if not exists pg_cron with schema pg_catalog;
-do $$
-declare v_job_id bigint;
-begin
-  select jobid into v_job_id from cron.job where jobname = 'mapsosa-expire-unpaid-orders';
-  if v_job_id is not null then perform cron.unschedule(v_job_id); end if;
-  perform cron.schedule('mapsosa-expire-unpaid-orders', '* * * * *', 'select public.cancel_expired_orders();');
-end;
-$$;
 
 create function public.handle_new_user() returns trigger language plpgsql security definer set search_path = '' as $$
 begin
