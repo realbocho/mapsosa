@@ -7,7 +7,7 @@
 1. Node.js 20 이상을 설치하고 저장소를 내려받습니다.
 2. `.env.example`을 `.env.local`로 복사한 뒤 Supabase URL과 publishable/anon key를 입력합니다.
 3. `npm install` 후 `npm run dev`를 실행합니다.
-4. `supabase/migrations`의 SQL 파일을 파일명 순서대로 Supabase SQL Editor에서 실행합니다.
+4. `supabase/migrations`의 SQL 파일을 파일명 순서대로 Supabase SQL Editor에서 실행합니다. 이미 `202610080004_orders_without_round.sql`까지 실행했다면 새 기능을 위해 `202610080005_customer_orders_and_pickup.sql`만 추가로 실행합니다.
 
 Supabase 설정 전에는 상품이 표시되지 않습니다. 상품은 `/admin`에서 운영자가 등록하며, 고객 모바일 화면에는 활성 상품이 한 목록으로 표시됩니다. OAuth 로그인과 주문 저장은 Supabase 프로젝트 설정이 필요합니다. 주문은 고객이 고른 수요일/토요일 픽업 날짜를 저장하며, 별도의 픽업 회차 개설은 요구하지 않습니다.
 
@@ -23,16 +23,18 @@ Kakao Developers 앱의 **앱 설정 → 앱 → 플랫폼 키 → JavaScript �
 
 GitHub 저장소를 Vercel 프로젝트에 연결하면 기본 Next.js 빌드 설정으로 배포됩니다. Vercel 프로젝트에 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_KAKAO_MAP_KEY`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` 환경 변수를 Preview/Production별로 추가하세요. Kakao client secret과 Supabase service-role key는 브라우저 환경 변수로 공개하지 마세요.
 
-## 관리자 상품 등록
+## 관리자 운영
 
 1. Kakao 로그인으로 한 번 가입한 뒤 Supabase의 `profiles` 테이블에서 해당 계정의 `role`을 `operator`로 변경합니다. 예: `update public.profiles set role = 'operator' where id = '<auth user UUID>';`
 2. `/admin`에 접속해 Kakao 로그인하면 관리자 권한을 확인합니다.
-3. 청과점의 이름, 동네, 주소, 연락처, 오픈/마감 시간, 정기 휴무를 등록합니다. 이어 상품명, 규격, 선택 모집 단위, 매입/판매 가격, 재고 수량, 비교 가격, 설명, 이미지 주소를 등록합니다.
-4. 관리자 링크는 모바일 헤더에 표시되며, 관리 기능은 `operator` 권한과 RLS로 제한됩니다. 관리자 비밀번호나 서비스 키를 코드에 저장하지 않습니다.
+3. `/admin`의 **주문·입금**에서 수요일/토요일 픽업일을 선택해 상품별 주문 수량과 입금 확인/대기 현황을 봅니다. 주문별 입금 확인, 확정 수량 입력, 부분/전액 환불, 확인서 발급과 환불 이체 기록을 처리할 수 있습니다.
+4. 같은 탭에서 고객 입금 계좌, 청과점 예약금·판매대금·회수 내역도 관리합니다. 고객은 주문 직후 `/orders`에서 본인 주문, 남은 입금 시간, 취소·환불 상태와 픽업 확인서를 확인합니다.
+5. **가게·상품**에서 청과점의 이름, 동네, 주소, 연락처, 오픈/마감 시간, 정기 휴무를 등록합니다. 상품은 슬롯형/즉시구매형으로 선택하고 슬롯 수는 선택 입력입니다.
+6. 관리자 링크는 모바일 헤더에 표시되며, 관리 기능은 `operator` 권한과 RLS로 제한됩니다. 관리자 비밀번호나 서비스 키를 코드에 저장하지 않습니다.
 
 ## MVP 구현 범위와 다음 단계
 
-- 구현: 모바일 중심 고객 화면, 수/토 픽업 선택, 단일 상품 목록, 가격 비교, 장바구니, 환불 정보 입력, Kakao OAuth, Supabase 상품 읽기와 주문 생성 RPC, 관리자 상품·청과점 등록/숨김, RLS.
-- 다음 구현: 입금 확인, 슬롯 배수 확정, 청과점 체크리스트 SMS 발송과 토큰 링크, 주문 내역·상태 조회, 입금 계좌 설정, 전자 픽업증명서 QR.
+- 구현: 모바일 중심 고객 화면, 수/토 실제 픽업 날짜 자동 표시, 가격 비교, 장바구니, Kakao OAuth, 본인 주문 조회·취소/환불 요청·픽업 완료, 입금 계좌 안내, 관리자 날짜별 주문 집계와 입금 확인, 슬롯 배수 권장 수량 계산과 경계 주문 재배정, 주문 확정/환불, QR 픽업 확인서, 청과점 이체 기록, 관리자 상품·가게 등록/수정, RLS.
+- 남은 연동: 청과점 체크리스트 SMS 자동 발송에는 SMS 사업자 계정과 인증정보가 필요합니다. 현재 관리자가 가게 확인 수량과 실제 입금 여부를 직접 입력합니다. 슬롯 배수 확정은 전날 11시 이후 관리자 화면의 계산 버튼을 실행하는 방식입니다.
 
-슬롯 확정·환불 이체는 금액과 주문 상태를 변경하는 작업이므로, 운영자 어드민과 슬롯 배수 확정 처리를 추가하고 운영자 권한을 검토한 뒤 실결제 운영을 시작해야 합니다. 미입금 주문 만료는 Supabase Cron을 사용합니다.
+새 DB 기능을 적용하려면 Supabase Dashboard → SQL Editor에서 `202610080005_customer_orders_and_pickup.sql` 내용을 실행하고, 관리자 화면의 주문·입금 탭에서 실제 입금 계좌를 저장해야 주문 접수가 열립니다. 미입금 취소와 픽업 자동 완료에는 Supabase Cron이 사용됩니다.

@@ -5,8 +5,7 @@ import { ArrowDown, ArrowRight, Check, Clock3, MapPin, Minus, Plus, ShoppingBag,
 import { createClient } from "@/lib/supabase/client";
 import { won, type Product } from "@/lib/products";
 import { StoreMap, type StoreLocation } from "@/components/store-map";
-
-type PickupDay = "수요일" | "토요일";
+import { formatPickupDate, nextPickupDate, type PickupDay } from "@/lib/pickup-dates";
 
 export default function Home() {
   const [pickup, setPickup] = useState<PickupDay>("수요일");
@@ -23,6 +22,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
   const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
+  const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
 
   useEffect(() => {
     try {
@@ -51,6 +51,7 @@ export default function Home() {
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) { setAuthStatus("signed_out"); return; }
+    void supabase.from("payment_settings").select("bank_name,account_number,account_holder,memo").eq("singleton", true).maybeSingle().then(({ data }) => { if (data) setPaymentAccount(data); });
     let active = true;
     void supabase.auth.getUser().then(({ data }) => {
       if (active) setAuthStatus(data.user ? "signed_in" : "signed_out");
@@ -68,9 +69,12 @@ export default function Home() {
       if (active && data) setStores(data as StoreLocation[]);
     });
     setLoading(true);
-    void supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,description,image_url,stores(name,area,closed_weekdays),price_comparisons(price)").eq("active", true).then(({ data }) => {
+    const productsRequest = supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,description,image_url,stores(name,area,closed_weekdays),price_comparisons(price)").eq("active", true);
+    const totalsRequest = supabase.rpc("product_order_totals", { p_pickup_date: pickupDate });
+    void Promise.all([productsRequest, totalsRequest]).then(([{ data }, { data: orderTotals }]) => {
       if (!active) return;
       if (data) {
+        const quantities = new Map((orderTotals ?? []).map((entry: { product_id: string; applied_quantity: number }) => [entry.product_id, Number(entry.applied_quantity)]));
         const dayIndex = pickup === "수요일" ? 3 : 6;
         setCatalog(data.flatMap((row) => {
           const store = (Array.isArray(row.stores) ? row.stores[0] : row.stores) as { name?: string; area?: string; closed_weekdays?: number[] } | null;
@@ -79,25 +83,19 @@ export default function Home() {
           const comparisonPrice = comparisons.length ? Math.max(...comparisons.map((entry) => entry.price)) : row.consumer_price;
           const isFruit = /사과|배|포도|키위|딸기|귤|한라봉|복숭아|수박|참외/.test(row.name);
           const emoji = /사과/.test(row.name) ? "🍎" : /포도/.test(row.name) ? "🍇" : /딸기/.test(row.name) ? "🍓" : /배/.test(row.name) ? "🍐" : isFruit ? "🍊" : "🥬";
-          return [{ id: row.id, name: row.name, variety: row.specification, store: store.name ?? "동네 청과점", area: store.area ?? "우리 동네", price: row.consumer_price, oldPrice: comparisonPrice, unit: row.specification, type: row.type, slotSize: row.slot_size ?? undefined, applied: 0, image: row.image_url || emoji, note: row.description || "동네 청과점에서 정성껏 준비했어요", tag: row.type === "slot" ? "공동구매" : "바로 구매", pickup }];
+          return [{ id: row.id, name: row.name, variety: row.specification, store: store.name ?? "동네 청과점", area: store.area ?? "우리 동네", price: row.consumer_price, oldPrice: comparisonPrice, unit: row.specification, type: row.type, slotSize: row.slot_size ?? undefined, applied: quantities.get(row.id) ?? 0, image: row.image_url || emoji, note: row.description || "동네 청과점에서 정성껏 준비했어요", tag: row.type === "slot" ? "공동구매" : "바로 구매", pickup }];
         }));
       }
       setLoading(false);
     });
     return () => { active = false; };
-  }, [pickup]);
+  }, [pickup, pickupDate]);
 
   const count = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
   const cartItems = catalog.filter((product) => cart[product.id]);
   const total = cartItems.reduce((sum, product) => sum + product.price * cart[product.id], 0);
-  const soonestDate = useMemo(() => {
-    const date = new Date();
-    const day = pickup === "수요일" ? 3 : 6;
-    let days = (day - date.getDay() + 7) % 7;
-    if (!days) days = 7;
-    date.setDate(date.getDate() + days);
-    return `${date.getMonth() + 1}. ${date.getDate()}.`;
-  }, [pickup]);
+  const pickupDate = useMemo(() => nextPickupDate(pickup), [pickup]);
+  const soonestDate = formatPickupDate(pickupDate);
 
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   function changeQuantity(id: string, amount: number) {
@@ -127,12 +125,6 @@ export default function Home() {
     try {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) { await signIn(); return; }
-      const date = new Date();
-      const targetDay = pickup === "수요일" ? 3 : 6;
-      let delta = (targetDay - date.getDay() + 7) % 7;
-      if (!delta) delta = 7;
-      date.setDate(date.getDate() + delta);
-      const pickupDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       const { data, error } = await supabase.rpc("create_order", {
         p_pickup_date: pickupDate,
         p_refund_preference: refund === "partial" ? "partial" : "all_or_nothing",
@@ -143,16 +135,15 @@ export default function Home() {
         p_items: cartItems.map((item) => ({ product_id: item.id, quantity: cart[item.id] })),
       });
       if (error) { notify(error.message); return; }
-      const result = Array.isArray(data) ? data[0] : data;
       setCart({}); setCheckout(false);
-      notify(`주문 ${result?.order_number ?? "접수"} · 1시간 안에 입금해 주세요`);
+      window.location.assign("/orders");
     } finally { setSubmitting(false); }
   }
 
   return <main className="mobile-app">
     <header className="mobile-header">
       <a className="mobile-brand" href="/" aria-label="맵소사 홈"><span className="mobile-brand-mark"><Sprout size={18}/></span>맵소사</a>
-      <div className="mobile-header-actions"><a className="admin-link" href="/admin">관리자</a><button className="header-cart" onClick={() => setCheckout(true)} aria-label={`장바구니 ${count}개`}><ShoppingBag size={19}/>{count > 0 && <span>{count}</span>}</button></div>
+      <div className="mobile-header-actions"><a className="admin-link" href="/orders">내 주문</a><a className="admin-link" href="/admin">관리자</a><button className="header-cart" onClick={() => setCheckout(true)} aria-label={`장바구니 ${count}개`}><ShoppingBag size={19}/>{count > 0 && <span>{count}</span>}</button></div>
     </header>
 
     <div className="mobile-content">
@@ -163,8 +154,8 @@ export default function Home() {
       </section>
 
       <section className="pickup-panel" aria-label="픽업일 선택">
-        <div><b>어느 날 픽업할까요?</b><span>수요일과 토요일에 만나요</span></div>
-        <div className="day-picker">{(["수요일", "토요일"] as PickupDay[]).map((day) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => setPickup(day)}>{day}</button>)}</div>
+        <div><b>어느 날 픽업할까요?</b><span>픽업 날짜를 선택해 주세요</span></div>
+        <div className="day-picker">{(["수요일", "토요일"] as PickupDay[]).map((day) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => setPickup(day)}><b>{day}</b><small>{formatPickupDate(nextPickupDate(day))}</small></button>)}</div>
       </section>
 
       <StoreMap stores={stores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY}/>
@@ -174,8 +165,8 @@ export default function Home() {
         {loading ? <div className="mobile-empty">상품을 불러오고 있어요…</div> : catalog.length ? <div className="mobile-product-list">{catalog.map((product) => {
           const imageIsUrl = product.image.startsWith("http");
           return <article className="mobile-product-card" key={product.id}>
-            <div className="mobile-product-top"><span className="product-kind">{product.type === "slot" ? "공동구매" : "바로 구매"}</span><span className="product-status">모집 중</span><span className="product-deadline">{soonestDate} 마감</span></div>
-            <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, (product.applied % product.slotSize) / product.slotSize * 100 || 28)}%` }}/></div><p className="progress-caption"><b>{product.applied}/{product.slotSize} 예약됨</b><span>· {Math.max(0, product.slotSize - product.applied % product.slotSize)}자리 남음</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <img src={product.image} alt=""/> : product.image}</div></div>
+            <div className="mobile-product-top"><span className="product-kind">{product.type === "slot" ? "슬롯형" : "즉시구매형"}</span><span className="product-status">모집 중</span><span className="product-deadline">픽업 {soonestDate}</span></div>
+            <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, product.applied / product.slotSize * 100)}%` }}/></div><p className="progress-caption"><b>{product.applied}개 예약 · {Math.floor(product.applied / product.slotSize)}세트 분량</b><span>· 다음 세트 {Math.max(0, product.slotSize - product.applied % product.slotSize)}개 남음</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <img src={product.image} alt=""/> : product.image}</div></div>
             <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => { changeQuantity(product.id, 1); notify(`${product.name}을(를) 담았어요`); }}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
           </article>;
         })}</div> : <div className="mobile-empty"><span>🍐</span><b>아직 등록된 상품이 없어요</b><p>관리자가 상품을 등록하면 이곳에 보여요.</p><a href="/admin">관리자 상품 등록 <ArrowRight size={14}/></a></div>}
@@ -191,8 +182,8 @@ export default function Home() {
     {checkout && <div className="mobile-modal-backdrop" onClick={() => setCheckout(false)}><section className="mobile-checkout" onClick={(event) => event.stopPropagation()}><div className="checkout-title"><div><span className="section-kicker">YOUR RESERVATION</span><h2>예약 목록</h2></div><button className="close-button" onClick={() => setCheckout(false)} aria-label="닫기"><X size={20}/></button></div>
       <div className="mobile-cart-items">{cartItems.map((product) => <div className="mobile-cart-item" key={product.id}><span className="cart-produce">{product.image.startsWith("http") ? <img src={product.image} alt=""/> : product.image}</span><div className="cart-item-copy"><b>{product.name}</b><small>{product.variety} · {won(product.price)}원</small></div><div className="mobile-quantity"><button onClick={() => changeQuantity(product.id, -1)} aria-label="수량 줄이기"><Minus size={15}/></button><span>{cart[product.id]}</span><button onClick={() => changeQuantity(product.id, 1)} aria-label="수량 늘리기"><Plus size={15}/></button></div></div>)}</div>
       <div className="refund-options"><h3>상품이 부족하면 어떻게 할까요?</h3><button className={refund === "partial" ? "refund-selected" : ""} onClick={() => setRefund("partial")}><span className="radio-mark"/><span><b>가능한 상품만 받을게요</b><small>부족한 수량만 환불돼요.</small></span></button><button className={refund === "all" ? "refund-selected" : ""} onClick={() => setRefund("all")}><span className="radio-mark"/><span><b>전체 환불받을게요</b><small>일부라도 준비되지 않으면 전체 환불돼요.</small></span></button></div>
-      <div className="mobile-bank-form"><h3>환불 계좌와 입금자 정보</h3><div className="bank-input-grid"><input placeholder="은행명" aria-label="은행명" value={refundBank} onChange={(e) => setRefundBank(e.target.value)}/><input placeholder="계좌번호" aria-label="환불 계좌번호" value={refundAccount} onChange={(e) => setRefundAccount(e.target.value)}/><input placeholder="예금주" aria-label="예금주" value={refundHolder} onChange={(e) => setRefundHolder(e.target.value)}/><input placeholder="입금자명" aria-label="입금자명" value={depositorName} onChange={(e) => setDepositorName(e.target.value)}/></div><p>주문 후 1시간 안에 입금해 주세요. 픽업은 {pickup} 당일이에요.</p></div>
-      <div className="mobile-total"><span>결제 예정 금액</span><b>{won(total)}원</b></div><button className="place-order-button" disabled={submitting} onClick={() => void placeOrder()}>{submitting ? "예약 접수 중…" : "예약하고 입금 안내 받기"}<ArrowRight size={17}/></button>
+      <div className="mobile-bank-form"><h3>입금 계좌 안내</h3>{paymentAccount ? <div className="checkout-transfer-account"><b>{paymentAccount.bank_name} {paymentAccount.account_number}</b><span>예금주 {paymentAccount.account_holder}</span><small>{paymentAccount.memo}</small></div> : <div className="checkout-transfer-account unavailable">입금 계좌가 아직 등록되지 않았어요. 관리자 설정 후 주문할 수 있어요.</div>}<h3>환불 계좌와 입금자 정보</h3><div className="bank-input-grid"><input placeholder="은행명" aria-label="환불 은행명" value={refundBank} onChange={(e) => setRefundBank(e.target.value)}/><input placeholder="계좌번호" aria-label="환불 계좌번호" value={refundAccount} onChange={(e) => setRefundAccount(e.target.value)}/><input placeholder="예금주" aria-label="환불 예금주" value={refundHolder} onChange={(e) => setRefundHolder(e.target.value)}/><input placeholder="입금자명" aria-label="입금자명" value={depositorName} onChange={(e) => setDepositorName(e.target.value)}/></div><p>주문 후 1시간 안에 입금해 주세요. 픽업은 {soonestDate}입니다. 픽업일 전날 오전 10시에 주문이 마감됩니다.</p><small className="fee-disclosure">맵소사는 주문 중개와 결제·환불·픽업 관리를 위해 소정의 중개수수료를 받으며, 결제금액에 포함되어 있습니다.</small></div>
+      <div className="mobile-total"><span>결제 예정 금액</span><b>{won(total)}원</b></div><button className="place-order-button" disabled={submitting || !paymentAccount} onClick={() => void placeOrder()}>{submitting ? "예약 접수 중…" : !paymentAccount ? "입금 계좌 설정 대기" : "예약하고 입금 안내 받기"}<ArrowRight size={17}/></button>
     </section></div>}
   </main>;
 }
