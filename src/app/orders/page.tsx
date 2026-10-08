@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Banknote, Check, Printer, Ticket, X } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
 import { formatPickupDate } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
@@ -106,7 +105,6 @@ export default function OrdersPage() {
         return { id: item.id, name: item.products?.name ?? "상품", specification: item.products?.specification ?? "", confirmed, refunded };
       }) : activePass.pass.item_snapshot.map((item, index) => ({ id: `${item.name}-${index}`, name: item.name, specification: item.specification, confirmed: item.quantity, refunded: 0 }))).map((item) => <div className={item.refunded > 0 && item.confirmed === 0 ? "refunded-order-line" : ""} key={item.id}><span>{item.refunded > 0 && item.confirmed === 0 ? <s>{item.name}</s> : item.name} · {item.specification}{item.refunded > 0 && <small><s>{item.refunded}개 환불</s></small>}</span><b>{item.confirmed}개 확정</b></div>)}</div>
       {activePass.order.refunds.some((refund) => refund.transferred_at) && <div className="ticket-items"><div><span>환불 완료</span><b>{won(activePass.order.refunds.filter((refund) => refund.transferred_at).reduce((sum, refund) => sum + refund.amount, 0))}원</b></div><div><span>환불 계좌</span><b>{activePass.order.refund_bank} {activePass.order.refund_account}</b></div><div><span>최종 결제 금액</span><b>{won(Math.max(0, activePass.order.total - activePass.order.refunds.filter((refund) => refund.transferred_at).reduce((sum, refund) => sum + refund.amount, 0)))}원</b></div></div>}
-      <div className="ticket-qr"><QRCodeSVG value={activePass.order.order_number} size={144} includeMargin/><small>주문번호 확인용</small></div>
       <div className="ticket-store-list">{[...new Map(activePass.order.order_items.map((item) => [item.products?.stores?.name, item.products?.stores?.address])).entries()].filter(([name]) => name).map(([name, address]) => <div key={name}><b>{name}</b><span>{address}</span></div>)}</div>
       <p className="ticket-policy">당일 수령하지 않은 상품은 폐기되며 환불되지 않습니다.</p><button className="ticket-print" onClick={() => window.print()}><Printer size={15}/>주문확인서 인쇄</button>
       {activePass.order.status === "pickup_ready" && <button className="pickup-done-button ticket-done" onClick={() => void completePickup(activePass.order)}><Check size={15}/>픽업 완료 처리</button>}
