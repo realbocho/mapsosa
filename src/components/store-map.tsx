@@ -48,7 +48,7 @@ function loadKakaoMap(key: string): Promise<KakaoApi> {
   return kakaoMapScript;
 }
 
-export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLocation[]; apiKey?: string; selectedStoreId?: string | null }) {
+export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default", onStoreSelect }: { stores: StoreLocation[]; apiKey?: string; selectedStoreId?: string | null; variant?: "default" | "background"; onStoreSelect?: (storeId: string) => void }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<KakaoMap | null>(null);
   const markersReady = useRef(false);
@@ -86,6 +86,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
           located += 1;
           kakao.maps.event.addListener(marker, "click", () => {
             setSelectedStore(store);
+            onStoreSelect?.(store.id);
             map.jump(position, 3, { animate: false });
           });
         }
@@ -132,7 +133,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
       mapRef.current = null;
       markerPositions.current.clear();
     };
-  }, [apiKey, stores]);
+  }, [apiKey, onStoreSelect, stores]);
 
   useEffect(() => {
     if (!selectedStoreId) {
@@ -152,13 +153,15 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
       mapRef.current?.jump(position, 3, { animate: false });
     }
     setSelectedStore(store);
+    onStoreSelect?.(store.id);
   }
 
-  return <section className="store-map-section" aria-labelledby="store-map-title">
-    <div className="store-map-heading">
+  return <section className={`store-map-section${variant === "background" ? " store-map-background" : ""}`} aria-labelledby="store-map-title">
+    {variant === "default" && <div className="store-map-heading">
       <div><span className="section-kicker">NEAR YOUR NEIGHBORHOOD</span><h2 id="store-map-title">가게 위치</h2></div>
       <span className="store-map-count"><MapPin size={13}/>{stores.length}곳</span>
-    </div>
+    </div>}
+    {variant === "background" && <div className="store-map-background-heading"><MapPin size={14}/>가게 위치 <span>{stores.length}곳</span></div>}
     {stores.length === 0 ? <div className="store-map-empty">등록된 가게가 아직 없어요.</div> : <>
       <div className="store-map-canvas" ref={mapElement} aria-label="등록된 청과점 위치 지도">
         {!apiKey && <div className="store-map-message">지도를 준비하고 있어요.</div>}
@@ -166,7 +169,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
         {mapError === "address" && <div className="store-map-message">등록된 가게 주소에서 지도 위치를 찾지 못했어요. 주소를 도로명 주소로 확인해 주세요.</div>}
         {!mapError && unlocatedCount > 0 && <div className="store-map-message">{unlocatedCount}개 가게의 주소를 지도에서 찾지 못했어요. 주소를 확인해 주세요.</div>}
       </div>
-      <div className="store-map-list">{stores.map((store) => <button key={store.id} className={selectedStore?.id === store.id ? "store-map-chip selected" : "store-map-chip"} onClick={() => focusStore(store)}><MapPin size={13}/><span>{store.name}</span></button>)}</div>
+      {variant === "default" && <div className="store-map-list">{stores.map((store) => <button key={store.id} className={selectedStore?.id === store.id ? "store-map-chip selected" : "store-map-chip"} onClick={() => focusStore(store)}><MapPin size={13}/><span>{store.name}</span></button>)}</div>}
       {selectedStore && <div className="store-map-selected"><div><b>{selectedStore.name}</b><span>{selectedStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(`${selectedStore.name} ${selectedStore.address}`)}`} target="_blank" rel="noreferrer">길찾기 <ArrowUpRight size={14}/></a></div>}
     </>}
   </section>;
