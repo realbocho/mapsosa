@@ -250,6 +250,20 @@ export default function Home() {
       return updated;
     });
   }
+  async function reserveProduct(product: Product) {
+    const supabase = createClient();
+    if (!supabase) { notify("로그인 설정을 확인해 주세요."); return; }
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) {
+      setAuthStatus("signed_out");
+      setShowLoginPrompt(true);
+      return;
+    }
+    setAuthStatus("signed_in");
+    setCurrentUserId(data.user.id);
+    changeQuantity(product.id, 1);
+    notify(`${product.name}을(를) 담았어요`);
+  }
   async function signIn() {
     const supabase = createClient();
     if (!supabase) { notify("Supabase와 카카오 로그인 설정을 먼저 완료해 주세요"); return; }
@@ -325,7 +339,7 @@ export default function Home() {
               return <article className="mobile-product-card" key={product.id}>
                 <div className="mobile-product-top"><span className="product-kind">{product.type === "slot" ? "슬롯형" : "즉시구매형"}</span><span className="product-status">모집 중</span><span className="product-deadline">픽업 {soonestDate}</span></div>
                 <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, product.applied / product.slotSize * 100)}%` }}/></div><p className="progress-caption"><b>{product.applied}개 예약 · {Math.floor(product.applied / product.slotSize)}세트 분량</b><span>· 다음 세트 {Math.max(0, product.slotSize - product.applied % product.slotSize)}개 남음</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <ProductImage image={product.image} fallback="🍎"/> : product.image}</div></div>
-                <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => { changeQuantity(product.id, 1); notify(`${product.name}을(를) 담았어요`); }}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
+                <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => void reserveProduct(product)}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
               </article>;
             })}</div>}
           </article>;
