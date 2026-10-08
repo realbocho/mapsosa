@@ -35,6 +35,7 @@ export default function Home() {
   const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [hasOrderUpdates, setHasOrderUpdates] = useState(false);
+  const [showGuidePrompt, setShowGuidePrompt] = useState(false);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
   const pickupDate = pickupOptions.find((option) => option.day === pickup)?.date ?? nextPickupDate(pickup);
@@ -57,6 +58,9 @@ export default function Home() {
     } catch { window.localStorage.removeItem("mapsosa-cart-v1"); }
   }, []);
   useEffect(() => { window.localStorage.setItem("mapsosa-cart-v1", JSON.stringify(cart)); }, [cart]);
+  useEffect(() => {
+    if (window.localStorage.getItem("mapsosa-guide-prompt-dismissed-v1") !== "1") setShowGuidePrompt(true);
+  }, []);
   useEffect(() => {
     setCurrentTime(Date.now());
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -179,6 +183,10 @@ export default function Home() {
   }, [pickup, pickupDate]);
 
   const count = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
+  function dismissGuidePrompt() {
+    window.localStorage.setItem("mapsosa-guide-prompt-dismissed-v1", "1");
+    setShowGuidePrompt(false);
+  }
   const cartItems = catalog.filter((product) => cart[product.id]);
   const total = cartItems.reduce((sum, product) => sum + product.price * cart[product.id], 0);
   const storeCatalog = useMemo(() => {
@@ -280,8 +288,10 @@ export default function Home() {
       <section className="mobile-intro">
         <span className="intro-label">동네 청과 공동구매</span>
         <h1>딱 먹을 만큼만,<br/>동네에서 나눠 사요</h1>
-        <p>근처 가게 상품을 필요한 만큼 함께 예약해요.</p>
+        <p>근처 가게 상품을 필요한 만큼 함께 예약해요. <a className="guide-inline-link" href="/guide" onClick={dismissGuidePrompt}>이용 방법 보기 <ArrowRight size={12}/></a></p>
       </section>
+
+      {showGuidePrompt && <aside className="guide-invite" aria-label="처음 방문 안내"><span className="guide-invite-mark">처음 오셨나요?</span><div><b>주문부터 픽업까지 한눈에</b><small>맵소사 이용 방법과 환불·픽업 흐름을 확인해 보세요.</small></div><a href="/guide" onClick={dismissGuidePrompt}>안내 보기 <ArrowRight size={14}/></a><button onClick={dismissGuidePrompt} aria-label="이용안내 제안 닫기">나중에</button></aside>}
 
       <section className="pickup-panel" aria-label="픽업일 선택">
         <div><b>어느 날 픽업할까요?</b><span>픽업 날짜를 선택해 주세요</span></div>
