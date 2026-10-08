@@ -8,6 +8,8 @@ import { StoreMap, type StoreLocation } from "@/components/store-map";
 import { ProductImage } from "@/components/product-image";
 import { LegalLinks } from "@/components/legal-links";
 import { formatPickupDate, nextPickupDate, type PickupDay } from "@/lib/pickup-dates";
+import { AcquisitionSurvey } from "@/components/acquisition-survey";
+import { AnalyticsConsent } from "@/components/analytics-consent";
 
 export default function Home() {
   const pickupOptions = useMemo(() => (["수요일", "토요일"] as PickupDay[])
@@ -27,6 +29,8 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
   const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
   const pickupDate = pickupOptions.find((option) => option.day === pickup)?.date ?? nextPickupDate(pickup);
   const soonestDate = formatPickupDate(pickupDate);
@@ -58,14 +62,18 @@ export default function Home() {
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) { setAuthStatus("signed_out"); return; }
+    const client = supabase;
     void supabase.from("payment_settings").select("bank_name,account_number,account_holder,memo").eq("singleton", true).maybeSingle().then(({ data }) => { if (data) setPaymentAccount(data); });
     let active = true;
-    void supabase.auth.getUser().then(({ data }) => {
-      if (active) setAuthStatus(data.user ? "signed_in" : "signed_out");
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthStatus(session?.user ? "signed_in" : "signed_out");
-    });
+    async function syncUser(userId: string | null) {
+      setCurrentUserId(userId);
+      setAuthStatus(userId ? "signed_in" : "signed_out");
+      if (!userId) { setAnalyticsConsent(false); return; }
+      const { data: profile } = await client.from("profiles").select("analytics_consent").eq("id", userId).maybeSingle();
+      if (active) setAnalyticsConsent(Boolean(profile?.analytics_consent));
+    }
+    void supabase.auth.getUser().then(({ data }) => { if (active) void syncUser(data.user?.id ?? null); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { void syncUser(session?.user?.id ?? null); });
     return () => { active = false; subscription.unsubscribe(); };
   }, []);
   useEffect(() => {
@@ -113,7 +121,16 @@ export default function Home() {
   }, [catalog]);
   const [openStoreId, setOpenStoreId] = useState<string | null>(null);
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
+  function track(eventName: "store_detail_opened" | "add_to_cart" | "checkout_started", details: { store_id?: string; product_id?: string } = {}) {
+    if (!currentUserId || !analyticsConsent) return;
+    const supabase = createClient();
+    if (supabase) void supabase.from("analytics_events").insert({ user_id: currentUserId, event_name: eventName, ...details });
+  }
   function changeQuantity(id: string, amount: number) {
+    if (amount > 0) {
+      const product = catalog.find((item) => item.id === id);
+      track("add_to_cart", { product_id: id, ...(product?.storeId ? { store_id: product.storeId } : {}) });
+    }
     setCart((current) => {
       const quantity = Math.max(0, (current[id] ?? 0) + amount);
       const updated = { ...current };
@@ -158,7 +175,7 @@ export default function Home() {
   return <main className="mobile-app">
     <header className="mobile-header">
       <a className="mobile-brand" href="/" aria-label="맵소사 홈"><span className="mobile-brand-mark"><Sprout size={18}/></span>맵소사</a>
-      <div className="mobile-header-actions"><a className="admin-link" href="/orders">내 주문</a><a className="admin-link" href="/admin">관리자</a><button className="header-cart" onClick={() => setCheckout(true)} aria-label={`장바구니 ${count}개`}><ShoppingBag size={19}/>{count > 0 && <span>{count}</span>}</button></div>
+      <div className="mobile-header-actions"><a className="admin-link" href="/orders">내 주문</a><a className="admin-link" href="/admin">관리자</a><button className="header-cart" onClick={() => { track("checkout_started"); setCheckout(true); }} aria-label={`장바구니 ${count}개`}><ShoppingBag size={19}/>{count > 0 && <span>{count}</span>}</button></div>
     </header>
 
     <div className="mobile-content">
@@ -179,7 +196,7 @@ export default function Home() {
           const isOpen = openStoreId === store.id;
           const preview = store.products.slice(0, 3);
           return <article className={`pickup-store-card${isOpen ? " is-open" : ""}`} key={store.id}>
-            <button className="pickup-store-summary" aria-expanded={isOpen} onClick={() => setOpenStoreId(isOpen ? null : store.id)}>
+            <button className="pickup-store-summary" aria-expanded={isOpen} onClick={() => { if (!isOpen) track("store_detail_opened", { store_id: store.id }); setOpenStoreId(isOpen ? null : store.id); }}>
               <span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area} · 과일 {store.products.length}종</small></span><span className="pickup-store-chevron">{isOpen ? "접기" : "자세히"}<ArrowRight size={15}/></span></span>
               <span className="fruit-preview">{preview.map((product) => <span className="fruit-preview-item" key={product.id}><span className="fruit-preview-image"><ProductImage image={product.image} fallback={product.image}/></span><span className="fruit-preview-copy"><b>{product.name}</b><small>{won(product.price)}원</small></span></span>)}{store.products.length > preview.length && <span className="fruit-preview-more">+{store.products.length - preview.length}</span>}</span>
               <span className="pickup-store-hint">과일을 눌러 상품과 예약 정보를 확인하세요</span>
@@ -199,11 +216,14 @@ export default function Home() {
       <StoreMap stores={stores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId}/>
 
       <section className="mobile-start">{authStatus === "signed_in" ? <><div className="kakao-start kakao-authenticated" role="status">카카오 로그인 완료</div><button className="kakao-logout" onClick={() => void signOut()}>로그아웃</button></> : <button className="kakao-start" onClick={signIn} disabled={authStatus === "checking"}>{authStatus === "checking" ? "로그인 확인 중…" : "카카오로 시작하기"}</button>}<p>{authStatus === "signed_in" ? "로그인 상태로 예약을 진행할 수 있어요." : "처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요."}</p></section>
+      {authStatus === "signed_in" && currentUserId && <AnalyticsConsent userId={currentUserId}/>}
       <footer className="mobile-footer"><LegalLinks/>© 2026 MAPSOSA · 동네에서 나눠 사는 즐거움</footer>
     </div>
 
     {count > 0 && <button className="mobile-floating-cart" onClick={() => setCheckout(true)}><span><ShoppingBag size={17}/><b>{count}</b></span><strong>예약 목록 보기</strong><em>{won(total)}원</em><ArrowRight size={16}/></button>}
     {toast && <div className="mobile-toast"><Check size={16}/>{toast}</div>}
+
+    {authStatus === "signed_in" && currentUserId && <AcquisitionSurvey userId={currentUserId}/>}
 
     {checkout && <div className="mobile-modal-backdrop" onClick={() => setCheckout(false)}><section className="mobile-checkout" onClick={(event) => event.stopPropagation()}><div className="checkout-title"><div><span className="section-kicker">YOUR RESERVATION</span><h2>예약 목록</h2></div><button className="close-button" onClick={() => setCheckout(false)} aria-label="닫기"><X size={20}/></button></div>
       <div className="mobile-cart-items">{cartItems.map((product) => <div className="mobile-cart-item" key={product.id}><span className="cart-produce"><ProductImage image={product.image} fallback={product.image}/></span><div className="cart-item-copy"><b>{product.name}</b><small>{product.variety} · {won(product.price)}원</small></div><div className="mobile-quantity"><button onClick={() => changeQuantity(product.id, -1)} aria-label="수량 줄이기"><Minus size={15}/></button><span>{cart[product.id]}</span><button onClick={() => changeQuantity(product.id, 1)} aria-label="수량 늘리기"><Plus size={15}/></button></div></div>)}</div>

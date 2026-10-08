@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { won } from "@/lib/products";
 import { AdminOrders } from "@/components/admin-orders";
 import { ProductImage } from "@/components/product-image";
+import { AdminAnalytics } from "@/components/admin-analytics";
 
 type StoreRow = { id: string; name: string; area: string; address: string; opening_time: string | null; closing_time: string; closed_weekdays: number[]; active: boolean };
 type ComparisonRow = { id: string; vendor: string; price: number; specification: string };
@@ -42,7 +43,7 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState(false);
-  const [section, setSection] = useState<"orders" | "catalog">("orders");
+  const [section, setSection] = useState<"orders" | "catalog" | "analytics">("orders");
 
   useEffect(() => { void checkOperator(); }, []);
   async function checkOperator() {
@@ -153,10 +154,10 @@ export default function AdminPage() {
   return <main className="admin-app">
     <header className="admin-top"><a href="/"><ArrowLeft size={17}/>고객 화면</a><b>맵소사 관리자</b><Store size={18} color="#2f8f4e"/></header>
     <div className="admin-content">
-      <div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>{section === "orders" ? "주문과 입금 관리" : "가게와 상품 관리"}</h1><p>{section === "orders" ? "픽업일별 주문 총량을 보고 입금과 확정 처리를 해요." : "가게를 여러 곳 등록한 뒤, 각 가게의 상품을 연결해 주세요."}</p></div>
-      <div className="admin-main-tabs"><button className={section === "orders" ? "selected" : ""} onClick={() => setSection("orders")}>주문 · 입금</button><button className={section === "catalog" ? "selected" : ""} onClick={() => setSection("catalog")}>가게 · 상품</button></div>
+      <div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>{section === "orders" ? "주문과 입금 관리" : section === "catalog" ? "가게와 상품 관리" : "데이터 분석"}</h1><p>{section === "orders" ? "픽업일별 주문 총량을 보고 입금과 확정 처리를 해요." : section === "catalog" ? "가게를 여러 곳 등록한 뒤, 각 가게의 상품을 연결해 주세요." : "입금 확인 고객, 재구매, 유입, 상품 수요를 살펴봐요."}</p></div>
+      <div className="admin-main-tabs"><button className={section === "orders" ? "selected" : ""} onClick={() => setSection("orders")}>주문 · 입금</button><button className={section === "catalog" ? "selected" : ""} onClick={() => setSection("catalog")}>가게 · 상품</button><button className={section === "analytics" ? "selected" : ""} onClick={() => setSection("analytics")}>데이터 분석</button></div>
       {notice && <div className={error ? "admin-notice error" : "admin-notice"}>{!error && <Check size={14} style={{ verticalAlign: "middle", marginRight: 5 }}/>} {notice}</div>}
-      {section === "orders" ? <AdminOrders/> : <>
+      {section === "orders" ? <AdminOrders/> : section === "analytics" ? <AdminAnalytics/> : <>
       <form className="admin-card admin-fields" onSubmit={(event) => void addStore(event)}>
         <h2>청과점 등록</h2>
         <p className="admin-help">가게를 한 곳씩 추가할 수 있어요. 등록 후 다른 가게도 이어서 입력하세요.</p>
