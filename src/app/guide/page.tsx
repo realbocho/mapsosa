@@ -5,11 +5,11 @@ import { ArrowLeft, ArrowRight, Banknote, CalendarDays, MapPin, PackageCheck, Sh
 import { LegalLinks } from "@/components/legal-links";
 
 const customerSteps = [
-  { icon: CalendarDays, title: "픽업 요일과 가게를 골라요", text: "수요일 또는 토요일을 선택하고, 가게를 눌러 상품과 규격·가격을 확인해요." },
-  { icon: ShoppingBasket, title: "상품을 담고 주문해요", text: "원하는 수량을 장바구니에 담아요. 주문할 때 입금자명과 환불 계좌를 입력하고, 슬롯 상품은 환불 방식을 선택해요." },
-  { icon: Banknote, title: "안내 계좌로 입금해요", text: "주문 화면에 표시된 금액과 계좌를 확인해 이체해 주세요. 입금 여부는 관리자가 직접 확인하며 자동 입금 판정은 하지 않아요." },
-  { icon: PackageCheck, title: "확정된 주문서를 확인해요", text: "주문이 확정되면 내 주문 화면에서 최종 수량과 환불 내역이 반영된 주문확인서를 볼 수 있어요. 환불이 있으면 관리자가 실제 송금한 뒤 완료 내역이 표시돼요." },
-  { icon: MapPin, title: "가게에서 직접 픽업해요", text: "주문확인서에 표시된 픽업 날짜와 가게를 확인하고 상품을 받아요. 수령을 마친 뒤 내 주문에서 픽업 완료를 눌러 주세요." },
+  { icon: CalendarDays, title: "픽업 요일과 가게를 골라요" },
+  { icon: ShoppingBasket, title: "상품을 담고 주문해요" },
+  { icon: Banknote, title: "안내 계좌로 입금해요" },
+  { icon: PackageCheck, title: "확정된 주문서를 확인해요" },
+  { icon: MapPin, title: "가게에서 직접 픽업해요" },
 ];
 
 export default function GuidePage() {
@@ -28,7 +28,7 @@ export default function GuidePage() {
       <section className="guide-deadline"><CalendarDays size={18}/><div><b>주문·취소 마감</b><span>픽업일 전날 오전 10시까지 주문을 하거나 취소할 수 있어요.</span></div><small>수요일 픽업은 화요일, 토요일 픽업은 금요일</small></section>
 
       <section className="guide-steps" aria-label="구매자 이용 순서">
-        {customerSteps.map(({ icon: Icon, title, text }, index) => <article className="guide-step" key={title}><span className="guide-step-number">{String(index + 1).padStart(2, "0")}</span><span className="guide-step-icon"><Icon size={17}/></span><div><h2>{title}</h2><p>{text}</p></div></article>)}
+        {customerSteps.map(({ icon: Icon, title }, index) => <article className="guide-step" key={title}><span className="guide-step-number">{String(index + 1).padStart(2, "0")}</span><span className="guide-step-icon"><Icon size={17}/></span><div><h2>{title}</h2></div></article>)}
       </section>
 
       <section className="guide-info-card guide-info-soft">
