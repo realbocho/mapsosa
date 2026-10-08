@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Banknote, Check, Printer, Ticket, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { formatPickupDate } from "@/lib/pickup-dates";
+import { formatPickupDate, orderDeadlineTimestamp } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
 import { LegalLinks } from "@/components/legal-links";
 import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
@@ -26,6 +26,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [activePass, setActivePass] = useState<{ order: Order; pass: PickupPass } | null>(null);
   const [notice, setNotice] = useState("");
+  const [currentTime, setCurrentTime] = useState(0);
 
   const loadOrders = useCallback(async () => {
     const supabase = createClient();
@@ -44,6 +45,11 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => { void loadOrders(); }, [loadOrders]);
+  useEffect(() => {
+    setCurrentTime(Date.now());
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function cancelOrder(order: Order) {
     if (!window.confirm(order.status === "awaiting_payment" ? "입금 전 주문을 취소할까요?" : "관리자에게 취소·환불 요청을 보낼까요?")) return;
@@ -77,6 +83,7 @@ export default function OrdersPage() {
         const completedRefunds = order.refunds?.filter((refund) => Boolean(refund.transferred_at)) ?? [];
         const completedRefundAmount = completedRefunds.reduce((sum, refund) => sum + refund.amount, 0);
         const hasCompletedRefund = completedRefunds.length > 0;
+        const cancellationClosed = currentTime >= orderDeadlineTimestamp(order.pickup_date);
         const fullyRefunded = ["refunded", "late_payment_refund"].includes(order.status) && hasCompletedRefund;
         const visibleStatus = pendingRefund && ["partially_refunded", "refunded", "late_payment_refund"].includes(order.status) ? "최종 내역 처리 중" : order.status === "refunded" && completedRefunds.length > 0 ? "환불 완료" : completedRefunds.length > 0 && pass ? "확정 · 환불 완료" : statusText[order.status] ?? order.status;
         return <article className="order-card" key={order.id}>
@@ -94,7 +101,7 @@ export default function OrdersPage() {
           {order.cancellation_requested_at && <p className="order-reason">취소 요청을 확인하고 있어요. 환불 처리 결과를 이 화면에서 확인해 주세요.</p>}
           {completedRefunds.map((refund) => <div className="refund-line" key={refund.id}><b>{refundText[refund.reason] ?? "환불"} · {won(refund.amount)}원</b><span>관리자가 실제 환불 이체를 완료했어요.</span><small>이체 완료 · {new Date(refund.transferred_at!).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</small></div>)}
           {pendingRefund && <p className="order-reason">최종 주문 내역을 정리 중이에요. 환불 금액과 결과는 관리자 확인 후 표시됩니다.</p>}
-          <div className="order-actions">{pass && <button className="ticket-button" onClick={() => setActivePass({ order, pass })}><Ticket size={15}/>{hasCompletedRefund ? "변경된 주문확인서 보기" : "주문확인서 보기"}</button>}{order.status === "pickup_ready" && <button className="pickup-done-button" onClick={() => void completePickup(order)}><Check size={15}/>픽업 완료</button>}{!isCancelled && order.status !== "picked_up" && order.status !== "auto_completed" && <button className="cancel-order-button" disabled={Boolean(order.cancellation_requested_at)} onClick={() => void cancelOrder(order)}>{order.status === "awaiting_payment" ? "주문 취소" : order.cancellation_requested_at ? "취소 요청 중" : "취소·환불 요청"}</button>}</div>
+          <div className="order-actions">{pass && <button className="ticket-button" onClick={() => setActivePass({ order, pass })}><Ticket size={15}/>{hasCompletedRefund ? "변경된 주문확인서 보기" : "주문확인서 보기"}</button>}{order.status === "pickup_ready" && <button className="pickup-done-button" onClick={() => void completePickup(order)}><Check size={15}/>픽업 완료</button>}{!isCancelled && order.status !== "picked_up" && order.status !== "auto_completed" && <button className="cancel-order-button" disabled={Boolean(order.cancellation_requested_at) || cancellationClosed} onClick={() => void cancelOrder(order)}>{order.cancellation_requested_at ? "취소 요청 중" : cancellationClosed ? (order.status === "awaiting_payment" ? "주문 취소 마감" : "취소·환불 마감") : order.status === "awaiting_payment" ? "주문 취소" : "취소·환불 요청"}</button>}</div>
         </article>;
       })}</div>}
       <p className="pickup-policy">픽업은 선택한 날짜에 가게에서 직접 수령해 주세요. 당일 미수령 상품은 폐기되며 환불되지 않습니다.</p>
