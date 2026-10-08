@@ -21,6 +21,7 @@ create table public.stores (
   area text not null,
   address text not null,
   sms_phone text,
+  opening_time time not null default '09:00',
   closing_time time not null default '20:00',
   closed_weekdays smallint[] not null default '{}',
   active boolean not null default true,

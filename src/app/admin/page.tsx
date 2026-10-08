@@ -5,7 +5,7 @@ import { ArrowLeft, Check, Store } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { won } from "@/lib/products";
 
-type StoreRow = { id: string; name: string; area: string; address: string; closed_weekdays: number[]; active: boolean };
+type StoreRow = { id: string; name: string; area: string; address: string; opening_time: string | null; closing_time: string; closed_weekdays: number[]; active: boolean };
 type ProductRow = { id: string; name: string; specification: string; consumer_price: number; type: "slot" | "instant"; slot_size: number | null; active: boolean; stores: StoreRow | StoreRow[] | null };
 
 export default function AdminPage() {
@@ -18,7 +18,8 @@ export default function AdminPage() {
   const [storeArea, setStoreArea] = useState("");
   const [storeAddress, setStoreAddress] = useState("");
   const [storePhone, setStorePhone] = useState("");
-  const [storeHours, setStoreHours] = useState("20:00");
+  const [storeOpeningTime, setStoreOpeningTime] = useState("09:00");
+  const [storeClosingTime, setStoreClosingTime] = useState("20:00");
   const [storeDaysOff, setStoreDaysOff] = useState<number[]>([]);
   const [selectedStore, setSelectedStore] = useState("");
   const [name, setName] = useState("");
@@ -53,7 +54,7 @@ export default function AdminPage() {
     const supabase = createClient();
     if (!supabase) return;
     const [{ data: storeData }, { data: productData }] = await Promise.all([
-      supabase.from("stores").select("id,name,area,address,closed_weekdays,active").order("created_at", { ascending: false }),
+      supabase.from("stores").select("id,name,area,address,opening_time,closing_time,closed_weekdays,active").order("created_at", { ascending: false }),
       supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,active,stores(id,name,area,address,closed_weekdays,active)").order("created_at", { ascending: false }),
     ]);
     setStores((storeData ?? []) as StoreRow[]);
@@ -72,11 +73,11 @@ export default function AdminPage() {
     if (!supabase) return;
     if (!storeName.trim() || !storeArea.trim() || !storeAddress.trim()) { showNotice("가게 이름, 동네, 주소를 입력해 주세요.", true); return; }
     setSaving(true);
-    const { data, error: insertError } = await supabase.from("stores").insert({ name: storeName.trim(), area: storeArea.trim(), address: storeAddress.trim(), sms_phone: storePhone.trim() || null, closing_time: storeHours, closed_weekdays: storeDaysOff }).select("id,name,area,address,closed_weekdays,active").single();
+    const { data, error: insertError } = await supabase.from("stores").insert({ name: storeName.trim(), area: storeArea.trim(), address: storeAddress.trim(), sms_phone: storePhone.trim() || null, opening_time: storeOpeningTime, closing_time: storeClosingTime, closed_weekdays: storeDaysOff }).select("id,name,area,address,opening_time,closing_time,closed_weekdays,active").single();
     setSaving(false);
     if (insertError || !data) { showNotice(insertError?.message ?? "가게를 저장하지 못했어요.", true); return; }
     setStores((previous) => [data as StoreRow, ...previous]);
-    setSelectedStore(data.id); setStoreName(""); setStoreArea(""); setStoreAddress(""); setStorePhone(""); setStoreHours("20:00"); setStoreDaysOff([]);
+    setSelectedStore(data.id); setStoreName(""); setStoreArea(""); setStoreAddress(""); setStorePhone(""); setStoreOpeningTime("09:00"); setStoreClosingTime("20:00"); setStoreDaysOff([]);
     showNotice(`${data.name} 등록 완료 · 다른 가게도 이어서 추가할 수 있어요.`);
   }
   async function addProduct(event: React.FormEvent<HTMLFormElement>) {
@@ -129,7 +130,8 @@ export default function AdminPage() {
         <p className="admin-help">가게를 한 곳씩 추가할 수 있어요. 등록 후 다른 가게도 이어서 입력하세요.</p>
         <div className="admin-field-pair"><div className="admin-field"><label htmlFor="store-name">가게 이름</label><input id="store-name" value={storeName} onChange={(event) => setStoreName(event.target.value)} placeholder="예: 망원청과" required/></div><div className="admin-field"><label htmlFor="store-area">동네 / 시장</label><input id="store-area" value={storeArea} onChange={(event) => setStoreArea(event.target.value)} placeholder="예: 망원시장" required/></div></div>
         <div className="admin-field"><label htmlFor="store-address">가게 주소</label><input id="store-address" value={storeAddress} onChange={(event) => setStoreAddress(event.target.value)} required/></div>
-        <div className="admin-field-pair"><div className="admin-field"><label htmlFor="store-phone">연락처 (선택)</label><input id="store-phone" value={storePhone} onChange={(event) => setStorePhone(event.target.value)} inputMode="tel" placeholder="010-0000-0000"/></div><div className="admin-field"><label htmlFor="store-hours">마감 시간</label><input id="store-hours" type="time" value={storeHours} onChange={(event) => setStoreHours(event.target.value)} required/></div></div>
+        <div className="admin-field"><label htmlFor="store-phone">연락처 (선택)</label><input id="store-phone" value={storePhone} onChange={(event) => setStorePhone(event.target.value)} inputMode="tel" placeholder="010-0000-0000"/></div>
+        <div className="admin-field-pair"><div className="admin-field"><label htmlFor="store-opening-time">오픈 시간</label><input id="store-opening-time" type="time" value={storeOpeningTime} onChange={(event) => setStoreOpeningTime(event.target.value)} required/></div><div className="admin-field"><label htmlFor="store-closing-time">마감 시간</label><input id="store-closing-time" type="time" value={storeClosingTime} onChange={(event) => setStoreClosingTime(event.target.value)} required/></div></div>
         <div className="admin-field"><label>정기 휴무</label><div className="admin-day-checks">{[[0,"일"],[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"]].map(([value,label]) => <label key={value}><input type="checkbox" checked={storeDaysOff.includes(Number(value))} onChange={(event) => setStoreDaysOff((days) => event.target.checked ? [...days, Number(value)] : days.filter((day) => day !== Number(value)))}/>{label}</label>)}</div></div>
         <button className="admin-save" type="submit" disabled={saving}>{saving ? "저장 중…" : "청과점 등록하고 다음 가게 추가"}</button>
       </form>
@@ -148,7 +150,7 @@ export default function AdminPage() {
       </form>
 
       <section className="admin-card"><h2>등록된 상품 <span style={{ color: "#7a847b", fontWeight: 500 }}>({items.length})</span></h2>{items.length ? <div className="admin-product-list">{items.map((item) => { const store = Array.isArray(item.stores) ? item.stores[0] : item.stores; return <article className="admin-product-row" key={item.id}><span className="admin-product-emoji">🍎</span><div className="admin-product-copy"><b>{item.name} · {item.specification}</b><span>{store?.name ?? "청과점"} · {won(item.consumer_price)}원{item.slot_size ? ` · ${item.slot_size}개 단위` : " · 단위 제한 없음"}</span></div><button className={item.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleProduct(item)}>{item.active ? "판매 중" : "숨김"}</button></article>; })}</div> : <div className="admin-empty">아직 등록된 상품이 없어요. 위에서 상품을 등록해 주세요.</div>}</section>
-      <section className="admin-card"><h2>등록된 청과점 <span style={{ color: "#7a847b", fontWeight: 500 }}>({stores.length})</span></h2>{stores.length ? <div className="admin-product-list">{stores.map((store) => <article className="admin-product-row" key={store.id}><span className="admin-product-emoji"><Store size={18}/></span><div className="admin-product-copy"><b>{store.name}</b><span>{store.area} · {store.address}</span></div><button className={store.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleStore(store)}>{store.active ? "운영 중" : "중지"}</button></article>)}</div> : <div className="admin-empty">위의 청과점 등록에서 첫 번째 가게를 추가해 주세요. 필요한 만큼 계속 등록할 수 있어요.</div>}</section>
+      <section className="admin-card"><h2>등록된 청과점 <span style={{ color: "#7a847b", fontWeight: 500 }}>({stores.length})</span></h2>{stores.length ? <div className="admin-product-list">{stores.map((store) => <article className="admin-product-row" key={store.id}><span className="admin-product-emoji"><Store size={18}/></span><div className="admin-product-copy"><b>{store.name}</b><span>{store.area} · {store.address} · {store.opening_time ? `${store.opening_time.slice(0, 5)} 오픈` : "오픈 시간 미등록"}–{store.closing_time.slice(0, 5)} 마감</span></div><button className={store.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleStore(store)}>{store.active ? "운영 중" : "중지"}</button></article>)}</div> : <div className="admin-empty">위의 청과점 등록에서 첫 번째 가게를 추가해 주세요. 필요한 만큼 계속 등록할 수 있어요.</div>}</section>
     </div>
   </main>;
 }
