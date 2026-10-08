@@ -280,17 +280,11 @@ export default function Home() {
 
   return <main className="mobile-app">
     <header className="mobile-header">
-      <a className="mobile-brand" href="/" aria-label="맵소사 홈"><span className="mobile-brand-mark"><Sprout size={18}/></span>맵소사</a>
+      <div className="mobile-header-brand-group"><a className="mobile-brand" href="/" aria-label="맵소사 홈"><span className="mobile-brand-mark"><Sprout size={18}/></span>맵소사</a><a className="header-guide-link" href="/guide" onClick={dismissGuidePrompt}>이용방법 보기</a></div>
       <div className="mobile-header-actions"><a className={`admin-link${hasOrderUpdates ? " has-updates" : ""}`} href="/orders" aria-label={hasOrderUpdates ? "내 주문, 새 변경사항 있음" : "내 주문"}>내 주문</a><a className="admin-link" href="/admin">관리자</a><button className="header-cart" onClick={() => { track("checkout_started"); setCheckout(true); }} aria-label={`장바구니 ${count}개`}><ShoppingBag size={19}/>{count > 0 && <span>{count}</span>}</button></div>
     </header>
 
     <div className="mobile-content">
-      <section className="mobile-intro">
-        <span className="intro-label">동네 청과 공동구매</span>
-        <h1>딱 먹을 만큼만,<br/>동네에서 나눠 사요</h1>
-        <p>근처 가게 상품을 필요한 만큼 함께 예약해요. <a className="guide-inline-link" href="/guide" onClick={dismissGuidePrompt}>이용 방법 보기 <ArrowRight size={12}/></a></p>
-      </section>
-
       {showGuidePrompt && <aside className="guide-invite" aria-label="처음 방문 안내"><span className="guide-invite-mark">처음 오셨나요?</span><div><b>주문부터 픽업까지 한눈에</b><small>맵소사 이용 방법과 환불·픽업 흐름을 확인해 보세요.</small></div><a href="/guide" onClick={dismissGuidePrompt}>안내 보기 <ArrowRight size={14}/></a><button onClick={dismissGuidePrompt} aria-label="이용안내 제안 닫기">나중에</button></aside>}
 
       <section className="pickup-panel" aria-label="픽업일 선택">
