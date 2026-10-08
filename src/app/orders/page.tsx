@@ -74,7 +74,7 @@ export default function OrdersPage() {
   if (loading) return <main className="orders-app"><header className="orders-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>내 주문</b></header><div className="order-empty">주문을 불러오고 있어요…</div></main>;
   return <main className="orders-app">
     <header className="orders-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>내 주문</b><button onClick={() => void loadOrders()}>새로고침</button></header>
-    <div className="orders-content"><div className="orders-heading"><span className="section-kicker">MY MAPSOSA</span><h1>주문 내역</h1><p>입금 상태와 확정 결과, 픽업 확인서를 여기서 볼 수 있어요.</p></div>
+    <div className="orders-content"><div className="orders-heading"><span className="section-kicker">MY MAPSOSA</span><h1>주문 내역</h1><p>입금 상태와 확정 결과, 픽업 확인서를 여기서 볼 수 있어요.</p></div><div className="orders-pickup-reminder"><Ticket size={15}/><span>주문이 확정되면 주문확인서를 볼 수 있어요. 픽업하러 가실 때 청과점에 주문확인서를 보여주세요.</span></div>
       {notice && <div className="admin-notice">{notice}</div>}
       {!signedIn ? <section className="order-empty"><b>로그인이 필요해요</b><p>카카오 로그인 후 본인 주문을 확인할 수 있어요.</p><button className="admin-save" onClick={() => window.location.assign("/auth/kakao/start?next=/orders")}>카카오로 로그인</button></section> : orders.length === 0 ? <div className="order-empty">아직 주문 내역이 없어요.<a href="/">상품 보러 가기</a></div> : <div className="orders-list">{orders.map((order) => {
         const pass = Array.isArray(order.pickup_passes) ? order.pickup_passes[0] : order.pickup_passes ?? undefined;
@@ -106,14 +106,14 @@ export default function OrdersPage() {
           {order.cancellation_requested_at && <p className="order-reason">취소 요청을 확인하고 있어요. 환불 처리 결과를 이 화면에서 확인해 주세요.</p>}
           {completedRefunds.map((refund) => <div className="refund-line" key={refund.id}><b>{refundText[refund.reason] ?? "환불"} · {won(refund.amount)}원</b><span>관리자가 실제 환불 이체를 완료했어요.</span><small>이체 완료 · {new Date(refund.transferred_at!).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</small></div>)}
           {pendingRefund && <p className="order-reason">최종 주문 내역을 정리 중이에요. 환불 금액과 결과는 관리자 확인 후 표시됩니다.</p>}
-          <div className="order-actions">{pass && <button className="ticket-button" onClick={() => setActivePass({ order, pass })}><Ticket size={15}/>{hasCompletedRefund ? "변경된 주문확인서 보기" : "주문확인서 보기"}</button>}{order.status === "pickup_ready" && <button className="pickup-done-button" onClick={() => void completePickup(order)}><Check size={15}/>픽업 완료</button>}{!isCancelled && order.status !== "picked_up" && order.status !== "auto_completed" && <button className="cancel-order-button" disabled={Boolean(order.cancellation_requested_at) || cancellationClosed} onClick={() => void cancelOrder(order)}>{order.cancellation_requested_at ? "취소 요청 중" : cancellationClosed ? (order.status === "awaiting_payment" ? "주문 취소 마감" : "취소·환불 마감") : order.status === "awaiting_payment" ? "주문 취소" : "취소·환불 요청"}</button>}</div>
+          {pass && <p className="order-ticket-reminder">픽업할 때 청과점에 주문확인서를 보여주세요.</p>}<div className="order-actions">{pass && <button className="ticket-button" onClick={() => setActivePass({ order, pass })}><Ticket size={15}/>{hasCompletedRefund ? "변경된 주문확인서 보기" : "주문확인서 보기"}</button>}{order.status === "pickup_ready" && <button className="pickup-done-button" onClick={() => void completePickup(order)}><Check size={15}/>픽업 완료</button>}{!isCancelled && order.status !== "picked_up" && order.status !== "auto_completed" && <button className="cancel-order-button" disabled={Boolean(order.cancellation_requested_at) || cancellationClosed} onClick={() => void cancelOrder(order)}>{order.cancellation_requested_at ? "취소 요청 중" : cancellationClosed ? (order.status === "awaiting_payment" ? "주문 취소 마감" : "취소·환불 마감") : order.status === "awaiting_payment" ? "주문 취소" : "취소·환불 요청"}</button>}</div>
         </article>;
       })}</div>}
       <p className="pickup-policy">픽업은 선택한 날짜에 가게에서 직접 수령해 주세요. 당일 미수령 상품은 폐기되며 환불되지 않습니다.</p>
       <LegalLinks />
     </div>
     {activePass && <div className="ticket-backdrop" onClick={() => setActivePass(null)}><section className="pickup-ticket" onClick={(event) => event.stopPropagation()}>
-      <button className="ticket-close" onClick={() => setActivePass(null)} aria-label="닫기"><X size={18}/></button><span className="section-kicker">MAPSOSA PICKUP</span><h2>주문확인서</h2><b className="ticket-date">{formatPickupDate(activePass.order.pickup_date)}</b><p>픽업 날짜 당일 수령이 원칙입니다</p>
+      <button className="ticket-close" onClick={() => setActivePass(null)} aria-label="닫기"><X size={18}/></button><span className="section-kicker">MAPSOSA PICKUP</span><h2>주문확인서</h2><b className="ticket-date">{formatPickupDate(activePass.order.pickup_date)}</b><p>픽업 날짜에 청과점에 방문해 이 주문확인서를 보여주고 상품을 픽업하세요.</p>
       <div className="ticket-profile">{activePass.order.profiles?.nickname ?? "맵소사 이웃"}<small>{activePass.order.order_number}</small></div>
       <div className="ticket-items">{(activePass.order.refunds.some((refund) => refund.transferred_at) ? activePass.order.order_items.map((item) => {
         const fullyRefunded = ["refunded", "late_payment_refund"].includes(activePass.order.status);
