@@ -23,6 +23,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
   const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
+  const pickupDate = useMemo(() => nextPickupDate(pickup), [pickup]);
+  const soonestDate = formatPickupDate(pickupDate);
 
   useEffect(() => {
     try {
@@ -94,9 +96,6 @@ export default function Home() {
   const count = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
   const cartItems = catalog.filter((product) => cart[product.id]);
   const total = cartItems.reduce((sum, product) => sum + product.price * cart[product.id], 0);
-  const pickupDate = useMemo(() => nextPickupDate(pickup), [pickup]);
-  const soonestDate = formatPickupDate(pickupDate);
-
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   function changeQuantity(id: string, amount: number) {
     setCart((current) => {
