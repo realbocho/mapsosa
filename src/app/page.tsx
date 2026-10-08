@@ -30,6 +30,23 @@ export default function Home() {
   }, []);
   useEffect(() => { window.localStorage.setItem("mapsosa-cart-v1", JSON.stringify(cart)); }, [cart]);
   useEffect(() => {
+    const error = new URLSearchParams(window.location.search).get("auth_error");
+    if (!error) return;
+    const messages: Record<string, string> = {
+      kakao_cancelled: "카카오 로그인을 취소했어요.",
+      kakao_state_mismatch: "로그인 확인이 만료됐어요. 다시 시도해 주세요.",
+      kakao_code_missing: "카카오 인증 코드를 받지 못했어요. 다시 시도해 주세요.",
+      kakao_not_configured: "카카오 로그인 설정이 배포 환경에 없습니다.",
+      kakao_token_unreachable: "카카오 인증 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+      kakao_token_rejected: "카카오 인증 코드 교환에 실패했어요. REST API 키와 Client Secret을 확인해 주세요.",
+      kakao_openid_missing: "카카오에서 OpenID 토큰을 받지 못했어요. Kakao Developers에서 OpenID Connect를 켜 주세요.",
+      supabase_not_configured: "Supabase 인증 환경변수가 배포 환경에 없습니다.",
+      supabase_rejected_kakao_token: "Supabase가 카카오 토큰을 거부했어요. Supabase의 Kakao 제공자 설정과 REST API 키가 같은지 확인해 주세요.",
+    };
+    setToast(messages[error] ?? "로그인에 실패했어요. 다시 시도해 주세요.");
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+  useEffect(() => {
     const supabase = createClient();
     if (!supabase) { setAuthStatus("signed_out"); return; }
     let active = true;
