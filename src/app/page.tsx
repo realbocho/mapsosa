@@ -204,6 +204,7 @@ export default function Home() {
     return stores.filter((store) => pickupStoreIds.has(store.id));
   }, [storeCatalog, stores]);
   const [openStoreId, setOpenStoreId] = useState<string | null>(null);
+  const selectedPickupStore = pickupStores.find((store) => store.id === openStoreId) ?? null;
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   function track(eventName: "store_detail_opened" | "add_to_cart" | "checkout_started", details: { store_id?: string; product_id?: string } = {}) {
     if (!currentUserId || !analyticsConsent) return;
@@ -304,6 +305,7 @@ export default function Home() {
         <div className="store-bottom-sheet">
           <div className="store-sheet-handle" aria-hidden="true"><span/></div>
           <div className="mobile-section-heading"><div><span className="section-kicker">{pickup.toUpperCase()}</span><h2>{pickup} 가게</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate}</span></div>
+          {selectedPickupStore && <div className="store-map-selected sheet-selected-store"><div><b>{selectedPickupStore.name}</b><span>{selectedPickupStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(`${selectedPickupStore.name} ${selectedPickupStore.address}`)}`} target="_blank" rel="noreferrer">길찾기 <ArrowRight size={14}/></a></div>}
           {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : storeCatalog.length ? <div className="pickup-store-list">{storeCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
           const preview = store.products.slice(0, 3);
