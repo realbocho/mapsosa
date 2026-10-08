@@ -1,5 +1,6 @@
 export type Product = {
   id: string;
+  storeId?: string;
   name: string;
   variety: string;
   store: string;
@@ -20,4 +21,3 @@ export type Product = {
 export const products: Product[] = [];
 
 export const won = (value: number) => new Intl.NumberFormat("ko-KR").format(value);
-

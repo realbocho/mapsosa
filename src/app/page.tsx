@@ -8,7 +8,10 @@ import { StoreMap, type StoreLocation } from "@/components/store-map";
 import { formatPickupDate, nextPickupDate, type PickupDay } from "@/lib/pickup-dates";
 
 export default function Home() {
-  const [pickup, setPickup] = useState<PickupDay>("수요일");
+  const pickupOptions = useMemo(() => (["수요일", "토요일"] as PickupDay[])
+    .map((day) => ({ day, date: nextPickupDate(day) }))
+    .sort((a, b) => a.date.localeCompare(b.date)), []);
+  const [pickup, setPickup] = useState<PickupDay>(() => pickupOptions[0].day);
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
@@ -23,7 +26,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
   const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
-  const pickupDate = useMemo(() => nextPickupDate(pickup), [pickup]);
+  const pickupDate = pickupOptions.find((option) => option.day === pickup)?.date ?? nextPickupDate(pickup);
   const soonestDate = formatPickupDate(pickupDate);
 
   useEffect(() => {
@@ -71,7 +74,7 @@ export default function Home() {
       if (active && data) setStores(data as StoreLocation[]);
     });
     setLoading(true);
-    const productsRequest = supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,description,image_url,stores(name,area,closed_weekdays),price_comparisons(price)").eq("active", true);
+    const productsRequest = supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,description,image_url,stores(id,name,area,closed_weekdays),price_comparisons(price)").eq("active", true);
     const totalsRequest = supabase.rpc("product_order_totals", { p_pickup_date: pickupDate });
     void Promise.all([productsRequest, totalsRequest]).then(([{ data }, { data: orderTotals }]) => {
       if (!active) return;
@@ -79,13 +82,13 @@ export default function Home() {
         const quantities = new Map<string, number>((orderTotals ?? []).map((entry: { product_id: string; applied_quantity: number }) => [entry.product_id, Number(entry.applied_quantity)] as const));
         const dayIndex = pickup === "수요일" ? 3 : 6;
         setCatalog(data.flatMap((row) => {
-          const store = (Array.isArray(row.stores) ? row.stores[0] : row.stores) as { name?: string; area?: string; closed_weekdays?: number[] } | null;
+          const store = (Array.isArray(row.stores) ? row.stores[0] : row.stores) as { id?: string; name?: string; area?: string; closed_weekdays?: number[] } | null;
           if (!store || store.closed_weekdays?.includes(dayIndex)) return [];
           const comparisons = (row.price_comparisons ?? []) as { price: number }[];
           const comparisonPrice = comparisons.length ? Math.max(...comparisons.map((entry) => entry.price)) : row.consumer_price;
           const isFruit = /사과|배|포도|키위|딸기|귤|한라봉|복숭아|수박|참외/.test(row.name);
           const emoji = /사과/.test(row.name) ? "🍎" : /포도/.test(row.name) ? "🍇" : /딸기/.test(row.name) ? "🍓" : /배/.test(row.name) ? "🍐" : isFruit ? "🍊" : "🥬";
-          return [{ id: row.id, name: row.name, variety: row.specification, store: store.name ?? "동네 청과점", area: store.area ?? "우리 동네", price: row.consumer_price, oldPrice: comparisonPrice, unit: row.specification, type: row.type, slotSize: row.slot_size ?? undefined, applied: quantities.get(row.id) ?? 0, image: row.image_url || emoji, note: row.description || "동네 청과점에서 정성껏 준비했어요", tag: row.type === "slot" ? "공동구매" : "바로 구매", pickup }];
+          return [{ id: row.id, storeId: store.id, name: row.name, variety: row.specification, store: store.name ?? "동네 청과점", area: store.area ?? "우리 동네", price: row.consumer_price, oldPrice: comparisonPrice, unit: row.specification, type: row.type, slotSize: row.slot_size ?? undefined, applied: quantities.get(row.id) ?? 0, image: row.image_url || emoji, note: row.description || "동네 청과점에서 정성껏 준비했어요", tag: row.type === "slot" ? "공동구매" : "바로 구매", pickup }];
         }));
       }
       setLoading(false);
@@ -96,6 +99,17 @@ export default function Home() {
   const count = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
   const cartItems = catalog.filter((product) => cart[product.id]);
   const total = cartItems.reduce((sum, product) => sum + product.price * cart[product.id], 0);
+  const storeCatalog = useMemo(() => {
+    const groups = new Map<string, { id: string; name: string; area: string; products: Product[] }>();
+    for (const product of catalog) {
+      const id = product.storeId ?? product.store;
+      const group = groups.get(id) ?? { id, name: product.store, area: product.area, products: [] };
+      group.products.push(product);
+      groups.set(id, group);
+    }
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }, [catalog]);
+  const [openStoreId, setOpenStoreId] = useState<string | null>(null);
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   function changeQuantity(id: string, amount: number) {
     setCart((current) => {
@@ -154,22 +168,33 @@ export default function Home() {
 
       <section className="pickup-panel" aria-label="픽업일 선택">
         <div><b>어느 날 픽업할까요?</b><span>픽업 날짜를 선택해 주세요</span></div>
-        <div className="day-picker">{(["수요일", "토요일"] as PickupDay[]).map((day) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => setPickup(day)}><b>{day}</b><small>{formatPickupDate(nextPickupDate(day))}</small></button>)}</div>
+        <div className="day-picker">{pickupOptions.map(({ day, date }) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => { setPickup(day); setOpenStoreId(null); }}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
+      </section>
+
+      <section className="mobile-market">
+        <div className="mobile-section-heading"><div><span className="section-kicker">{pickup.toUpperCase()}</span><h2>{pickup} 가게</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate}</span></div>
+        {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : storeCatalog.length ? <div className="pickup-store-list">{storeCatalog.map((store) => {
+          const isOpen = openStoreId === store.id;
+          const preview = store.products.slice(0, 3);
+          return <article className={`pickup-store-card${isOpen ? " is-open" : ""}`} key={store.id}>
+            <button className="pickup-store-summary" aria-expanded={isOpen} onClick={() => setOpenStoreId(isOpen ? null : store.id)}>
+              <span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area} · 과일 {store.products.length}종</small></span><span className="pickup-store-chevron">{isOpen ? "접기" : "자세히"}<ArrowRight size={15}/></span></span>
+              <span className="fruit-preview">{preview.map((product) => <span className="fruit-preview-item" key={product.id}><span className="fruit-preview-image">{product.image.startsWith("http") ? <img src={product.image} alt=""/> : product.image}</span><span className="fruit-preview-copy"><b>{product.name}</b><small>{won(product.price)}원</small></span></span>)}{store.products.length > preview.length && <span className="fruit-preview-more">+{store.products.length - preview.length}</span>}</span>
+              <span className="pickup-store-hint">과일을 눌러 상품과 예약 정보를 확인하세요</span>
+            </button>
+            {isOpen && <div className="store-product-details">{store.products.map((product) => {
+              const imageIsUrl = product.image.startsWith("http");
+              return <article className="mobile-product-card" key={product.id}>
+                <div className="mobile-product-top"><span className="product-kind">{product.type === "slot" ? "슬롯형" : "즉시구매형"}</span><span className="product-status">모집 중</span><span className="product-deadline">픽업 {soonestDate}</span></div>
+                <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, product.applied / product.slotSize * 100)}%` }}/></div><p className="progress-caption"><b>{product.applied}개 예약 · {Math.floor(product.applied / product.slotSize)}세트 분량</b><span>· 다음 세트 {Math.max(0, product.slotSize - product.applied % product.slotSize)}개 남음</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <img src={product.image} alt=""/> : product.image}</div></div>
+                <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => { changeQuantity(product.id, 1); notify(`${product.name}을(를) 담았어요`); }}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
+              </article>;
+            })}</div>}
+          </article>;
+        })}</div> : <div className="mobile-empty"><span>🍐</span><b>{pickup} 픽업 가게가 아직 없어요</b><p>관리자가 가게와 과일을 등록하면 이곳에 보여요.</p><a href="/admin">관리자 상품 등록 <ArrowRight size={14}/></a></div>}
       </section>
 
       <StoreMap stores={stores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY}/>
-
-      <section className="mobile-market">
-        <div className="mobile-section-heading"><div><span className="section-kicker">THIS WEEK</span><h2>이번 주 상품</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate} 픽업</span></div>
-        {loading ? <div className="mobile-empty">상품을 불러오고 있어요…</div> : catalog.length ? <div className="mobile-product-list">{catalog.map((product) => {
-          const imageIsUrl = product.image.startsWith("http");
-          return <article className="mobile-product-card" key={product.id}>
-            <div className="mobile-product-top"><span className="product-kind">{product.type === "slot" ? "슬롯형" : "즉시구매형"}</span><span className="product-status">모집 중</span><span className="product-deadline">픽업 {soonestDate}</span></div>
-            <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, product.applied / product.slotSize * 100)}%` }}/></div><p className="progress-caption"><b>{product.applied}개 예약 · {Math.floor(product.applied / product.slotSize)}세트 분량</b><span>· 다음 세트 {Math.max(0, product.slotSize - product.applied % product.slotSize)}개 남음</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <img src={product.image} alt=""/> : product.image}</div></div>
-            <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => { changeQuantity(product.id, 1); notify(`${product.name}을(를) 담았어요`); }}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
-          </article>;
-        })}</div> : <div className="mobile-empty"><span>🍐</span><b>아직 등록된 상품이 없어요</b><p>관리자가 상품을 등록하면 이곳에 보여요.</p><a href="/admin">관리자 상품 등록 <ArrowRight size={14}/></a></div>}
-      </section>
 
       <section className="mobile-start">{authStatus === "signed_in" ? <><div className="kakao-start kakao-authenticated" role="status">카카오 로그인 완료</div><button className="kakao-logout" onClick={() => void signOut()}>로그아웃</button></> : <button className="kakao-start" onClick={signIn} disabled={authStatus === "checking"}>{authStatus === "checking" ? "로그인 확인 중…" : "카카오로 시작하기"}</button>}<p>{authStatus === "signed_in" ? "로그인 상태로 예약을 진행할 수 있어요." : "처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요."}</p></section>
       <footer className="mobile-footer">© 2026 MAPSOSA · 동네에서 나눠 사는 즐거움</footer>
