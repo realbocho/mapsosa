@@ -6,7 +6,7 @@ import { ArrowUpRight, MapPin } from "lucide-react";
 export type StoreLocation = { id: string; name: string; area: string; address: string };
 
 type LatLng = object;
-type KakaoMap = { panTo: (position: LatLng) => void; setBounds: (bounds: object) => void };
+type KakaoMap = { panTo: (position: LatLng) => void; setBounds: (bounds: object) => void; setLevel: (level: number) => void };
 type KakaoMarker = object;
 type GeocodeResult = { x: string; y: string };
 type KakaoApi = {
@@ -48,13 +48,14 @@ function loadKakaoMap(key: string): Promise<KakaoApi> {
   return kakaoMapScript;
 }
 
-export function StoreMap({ stores, apiKey }: { stores: StoreLocation[]; apiKey?: string }) {
+export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLocation[]; apiKey?: string; selectedStoreId?: string | null }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<KakaoMap | null>(null);
   const markerPositions = useRef(new Map<string, LatLng>());
   const [selectedStore, setSelectedStore] = useState<StoreLocation | null>(null);
   const [mapError, setMapError] = useState<"sdk" | "address" | null>(null);
   const [unlocatedCount, setUnlocatedCount] = useState(0);
+  const [markersVersion, setMarkersVersion] = useState(0);
 
   useEffect(() => {
     if (!apiKey || !mapElement.current || stores.length === 0) return;
@@ -88,6 +89,7 @@ export function StoreMap({ stores, apiKey }: { stores: StoreLocation[]; apiKey?:
           }
 
           completed += 1;
+          if (completed === stores.length) setMarkersVersion((version) => version + 1);
           if (completed === stores.length && located > 0) {
             map.setBounds(bounds);
             setUnlocatedCount(stores.length - located);
@@ -103,6 +105,19 @@ export function StoreMap({ stores, apiKey }: { stores: StoreLocation[]; apiKey?:
       markerPositions.current.clear();
     };
   }, [apiKey, stores]);
+
+  useEffect(() => {
+    if (!selectedStoreId) {
+      setSelectedStore(null);
+      return;
+    }
+    const store = stores.find((entry) => entry.id === selectedStoreId);
+    const position = markerPositions.current.get(selectedStoreId);
+    if (!store || !position || !mapRef.current) return;
+    setSelectedStore(store);
+    mapRef.current.panTo(position);
+    mapRef.current.setLevel(3);
+  }, [selectedStoreId, stores, markersVersion]);
 
   function focusStore(store: StoreLocation) {
     const position = markerPositions.current.get(store.id);
