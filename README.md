@@ -15,9 +15,13 @@ Supabase 설정 전에는 상품이 표시되지 않습니다. 상품은 `/admin
 
 Kakao Developers에서 Kakao Login과 OpenID Connect를 활성화하고, Redirect URI로 `{서비스 도메인}/auth/kakao/callback`을 등록합니다. 이 앱은 `openid`만 요청해 닉네임, 프로필 사진, 이메일을 요청하지 않습니다. Supabase Dashboard의 **Authentication → Providers → Kakao**에는 REST API key와 Client Secret을 등록하고, 이메일 없이 가입 허용을 켭니다. Vercel 환경 변수에는 `KAKAO_REST_API_KEY`와 서버 전용 `KAKAO_CLIENT_SECRET`을 추가합니다. Supabase Auth URL Configuration에는 로컬 URL과 배포 도메인을 Redirect URL로 등록합니다.
 
+## Kakao 지도
+
+Kakao Developers 앱의 **앱 설정 → 앱 → 플랫폼 키 → JavaScript 키**를 사용하고, JavaScript SDK 도메인에 `https://mapsosa-three.vercel.app`과 로컬 개발 주소를 등록합니다. 해당 키를 `NEXT_PUBLIC_KAKAO_MAP_KEY`로 설정합니다. REST API 키가 아니라 JavaScript 키를 사용해야 합니다. 지도는 등록된 가게 주소를 좌표로 변환해 마커로 표시합니다.
+
 ## 배포
 
-GitHub 저장소를 Vercel 프로젝트에 연결하면 기본 Next.js 빌드 설정으로 배포됩니다. Vercel 프로젝트에 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` 환경 변수를 Preview/Production별로 추가하세요. Kakao client secret과 Supabase service-role key는 브라우저 환경 변수로 공개하지 마세요.
+GitHub 저장소를 Vercel 프로젝트에 연결하면 기본 Next.js 빌드 설정으로 배포됩니다. Vercel 프로젝트에 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_KAKAO_MAP_KEY`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` 환경 변수를 Preview/Production별로 추가하세요. Kakao client secret과 Supabase service-role key는 브라우저 환경 변수로 공개하지 마세요.
 
 ## 관리자 상품 등록
 

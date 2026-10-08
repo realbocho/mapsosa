@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowRight, Check, Clock3, MapPin, Minus, Plus, ShoppingBag, Sprout, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { won, type Product } from "@/lib/products";
+import { StoreMap, type StoreLocation } from "@/components/store-map";
 
 type PickupDay = "수요일" | "토요일";
 
 export default function Home() {
   const [pickup, setPickup] = useState<PickupDay>("수요일");
   const [catalog, setCatalog] = useState<Product[]>([]);
+  const [stores, setStores] = useState<StoreLocation[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
   const [refund, setRefund] = useState<"all" | "partial">("partial");
@@ -62,6 +64,9 @@ export default function Home() {
     let active = true;
     const supabase = createClient();
     if (!supabase) { setLoading(false); return; }
+    void supabase.from("stores").select("id,name,area,address").eq("active", true).order("name").then(({ data }) => {
+      if (active && data) setStores(data as StoreLocation[]);
+    });
     setLoading(true);
     void supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,description,image_url,stores(name,area,closed_weekdays),price_comparisons(price)").eq("active", true).then(({ data }) => {
       if (!active) return;
@@ -163,6 +168,8 @@ export default function Home() {
         <div><b>어느 날 픽업할까요?</b><span>수요일과 토요일에 만나요</span></div>
         <div className="day-picker">{(["수요일", "토요일"] as PickupDay[]).map((day) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => setPickup(day)}>{day}</button>)}</div>
       </section>
+
+      <StoreMap stores={stores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY}/>
 
       <section className="mobile-market">
         <div className="mobile-section-heading"><div><span className="section-kicker">THIS WEEK</span><h2>이번 주 상품</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate} 픽업</span></div>
