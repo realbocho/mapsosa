@@ -20,6 +20,7 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
+  const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
 
   useEffect(() => {
     try {
@@ -28,6 +29,18 @@ export default function Home() {
     } catch { window.localStorage.removeItem("mapsosa-cart-v1"); }
   }, []);
   useEffect(() => { window.localStorage.setItem("mapsosa-cart-v1", JSON.stringify(cart)); }, [cart]);
+  useEffect(() => {
+    const supabase = createClient();
+    if (!supabase) { setAuthStatus("signed_out"); return; }
+    let active = true;
+    void supabase.auth.getUser().then(({ data }) => {
+      if (active) setAuthStatus(data.user ? "signed_in" : "signed_out");
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthStatus(session?.user ? "signed_in" : "signed_out");
+    });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, []);
   useEffect(() => {
     let active = true;
     const supabase = createClient();
@@ -77,6 +90,12 @@ export default function Home() {
     const supabase = createClient();
     if (!supabase) { notify("Supabase와 카카오 로그인 설정을 먼저 완료해 주세요"); return; }
     window.location.assign("/auth/kakao/start?next=/");
+  }
+  async function signOut() {
+    const supabase = createClient();
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) notify("로그아웃하지 못했어요. 다시 시도해 주세요.");
   }
   async function placeOrder() {
     if (!refundBank.trim() || !refundAccount.trim() || !refundHolder.trim() || !depositorName.trim()) { notify("환불 계좌와 입금자 정보를 입력해 주세요"); return; }
@@ -140,7 +159,7 @@ export default function Home() {
         })}</div> : <div className="mobile-empty"><span>🍐</span><b>아직 등록된 상품이 없어요</b><p>관리자가 상품을 등록하면 이곳에 보여요.</p><a href="/admin">관리자 상품 등록 <ArrowRight size={14}/></a></div>}
       </section>
 
-      <section className="mobile-start"><button className="kakao-start" onClick={signIn}>카카오로 시작하기</button><p>처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요.</p></section>
+      <section className="mobile-start">{authStatus === "signed_in" ? <><div className="kakao-start kakao-authenticated" role="status">카카오 로그인 완료</div><button className="kakao-logout" onClick={() => void signOut()}>로그아웃</button></> : <button className="kakao-start" onClick={signIn} disabled={authStatus === "checking"}>{authStatus === "checking" ? "로그인 확인 중…" : "카카오로 시작하기"}</button>}<p>{authStatus === "signed_in" ? "로그인 상태로 예약을 진행할 수 있어요." : "처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요."}</p></section>
       <footer className="mobile-footer">© 2026 MAPSOSA · 동네에서 나눠 사는 즐거움</footer>
     </div>
 

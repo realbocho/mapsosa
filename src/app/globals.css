@@ -5,3 +5,4 @@
 @media(min-width:700px){body{padding:22px 0}.mobile-app,.admin-app{min-height:calc(100dvh - 44px);border-radius:18px;overflow:hidden}.mobile-header,.admin-top{border-radius:18px 18px 0 0}}
 .admin-day-checks{display:flex;gap:7px}.admin-day-checks label{display:flex;align-items:center;gap:4px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;color:#59645b;font-size:10px}.admin-day-checks input{accent-color:var(--brand)}
 
+.kakao-authenticated{display:grid;place-items:center;background:#e7f4e9;color:#26753f}.kakao-logout{justify-self:center;padding:4px 10px;border:0;background:transparent;color:#7d877e;font-size:11px;text-decoration:underline;text-underline-offset:3px}
