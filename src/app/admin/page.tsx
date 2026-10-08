@@ -1,0 +1,141 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { ArrowLeft, Check, Plus, Store, X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { won } from "@/lib/products";
+
+type StoreRow = { id: string; name: string; area: string; address: string; closed_weekdays: number[]; active: boolean };
+type ProductRow = { id: string; name: string; specification: string; consumer_price: number; type: "slot" | "instant"; slot_size: number | null; active: boolean; stores: StoreRow | StoreRow[] | null };
+
+export default function AdminPage() {
+  const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  const [stores, setStores] = useState<StoreRow[]>([]);
+  const [items, setItems] = useState<ProductRow[]>([]);
+  const [storeName, setStoreName] = useState("");
+  const [storeArea, setStoreArea] = useState("");
+  const [storeAddress, setStoreAddress] = useState("");
+  const [storePhone, setStorePhone] = useState("");
+  const [storeHours, setStoreHours] = useState("20:00");
+  const [storeDaysOff, setStoreDaysOff] = useState<number[]>([]);
+  const [storeOpen, setStoreOpen] = useState(false);
+  const [selectedStore, setSelectedStore] = useState("");
+  const [name, setName] = useState("");
+  const [specification, setSpecification] = useState("");
+  const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [consumerPrice, setConsumerPrice] = useState("");
+  const [supplyPrice, setSupplyPrice] = useState("");
+  const [comparisonPrice, setComparisonPrice] = useState("");
+  const [comparisonVendor, setComparisonVendor] = useState("");
+  const type: "slot" = "slot";
+  const [slotSize, setSlotSize] = useState("4");
+  const [availableQuantity, setAvailableQuantity] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState(false);
+
+  useEffect(() => { void checkOperator(); }, []);
+  async function checkOperator() {
+    const supabase = createClient();
+    if (!supabase) { setLoading(false); setNotice("Supabase 설정이 필요합니다."); setError(true); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); setSignedIn(false); return; }
+    setSignedIn(true);
+    const { data: profile, error: profileError } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+    if (profileError || profile?.role !== "operator") { setLoading(false); setAuthorized(false); return; }
+    setAuthorized(true);
+    await loadData();
+    setLoading(false);
+  }
+  async function loadData() {
+    const supabase = createClient();
+    if (!supabase) return;
+    const [{ data: storeData }, { data: productData }] = await Promise.all([
+      supabase.from("stores").select("id,name,area,address,closed_weekdays,active").order("created_at", { ascending: false }),
+      supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,active,stores(id,name,area,address,closed_weekdays,active)").order("created_at", { ascending: false }),
+    ]);
+    setStores((storeData ?? []) as StoreRow[]);
+    setItems((productData ?? []) as ProductRow[]);
+    if (storeData?.length && !selectedStore) setSelectedStore(storeData[0].id);
+  }
+  function showNotice(message: string, isError = false) { setNotice(message); setError(isError); window.setTimeout(() => setNotice(""), 3500); }
+  async function kakaoLogin() {
+    const supabase = createClient();
+    if (!supabase) return;
+    const { error: signInError } = await supabase.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: `${window.location.origin}/auth/callback?next=/admin` } });
+    if (signInError) showNotice(signInError.message, true);
+  }
+  async function addStore() {
+    const supabase = createClient();
+    if (!supabase) return;
+    if (!storeName.trim() || !storeArea.trim() || !storeAddress.trim()) { showNotice("가게 이름, 동네, 주소를 입력해 주세요.", true); return; }
+    setSaving(true);
+    const { data, error: insertError } = await supabase.from("stores").insert({ name: storeName.trim(), area: storeArea.trim(), address: storeAddress.trim(), sms_phone: storePhone.trim() || null, closing_time: storeHours, closed_weekdays: storeDaysOff }).select("id,name,area,address,closed_weekdays,active").single();
+    setSaving(false);
+    if (insertError || !data) { showNotice(insertError?.message ?? "가게를 저장하지 못했어요.", true); return; }
+    setStores((previous) => [data as StoreRow, ...previous]);
+    setSelectedStore(data.id); setStoreName(""); setStoreArea(""); setStoreAddress(""); setStorePhone(""); setStoreHours("20:00"); setStoreDaysOff([]); setStoreOpen(false);
+    showNotice("청과점을 등록했어요.");
+  }
+  async function addProduct(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const supabase = createClient();
+    if (!supabase) return;
+    if (!selectedStore) { showNotice("먼저 청과점을 등록해 주세요.", true); return; }
+    setSaving(true);
+    const { data, error: insertError } = await supabase.from("products").insert({
+      store_id: selectedStore, name: name.trim(), specification: specification.trim(), description: description.trim(), image_url: imageUrl.trim() || null,
+      consumer_price: Number(consumerPrice), supply_price: Number(supplyPrice), type,
+      slot_size: Number(slotSize), available_quantity: availableQuantity ? Number(availableQuantity) : null, active: true,
+    }).select("id,name,specification,consumer_price,type,slot_size,active,stores(id,name,area,address,closed_weekdays,active)").single();
+    if (insertError || !data) { setSaving(false); showNotice(insertError?.message ?? "상품을 저장하지 못했어요.", true); return; }
+    if (Number(comparisonPrice) > 0) {
+      const comparisonResult = await supabase.from("price_comparisons").insert({ product_id: data.id, vendor: comparisonVendor.trim() || "주변 판매가", price: Number(comparisonPrice), specification: specification.trim() });
+      if (comparisonResult.error) { setSaving(false); await loadData(); showNotice("상품은 등록했지만 비교 가격 저장에 실패했어요.", true); return; }
+    }
+    setSaving(false); setItems((previous) => [data as ProductRow, ...previous]);
+    setName(""); setSpecification(""); setDescription(""); setImageUrl(""); setConsumerPrice(""); setSupplyPrice(""); setComparisonPrice(""); setComparisonVendor(""); setAvailableQuantity("");
+    showNotice("상품을 등록했어요. 고객 화면에 바로 표시됩니다.");
+  }
+  async function toggleProduct(item: ProductRow) {
+    const supabase = createClient();
+    if (!supabase) return;
+    const { error: updateError } = await supabase.from("products").update({ active: !item.active }).eq("id", item.id);
+    if (updateError) { showNotice(updateError.message, true); return; }
+    setItems((previous) => previous.map((entry) => entry.id === item.id ? { ...entry, active: !entry.active } : entry));
+  }
+
+  if (loading) return <main className="admin-app"><header className="admin-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>관리자</b></header><div className="admin-content"><div className="admin-empty">관리자 정보를 확인하고 있어요…</div></div></main>;
+  if (!signedIn) return <main className="admin-app"><header className="admin-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>관리자</b></header><div className="admin-content"><div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>관리자 로그인</h1><p>카카오 계정으로 로그인해 상품을 관리해요.</p></div><section className="admin-card"><button className="admin-save" onClick={() => void kakaoLogin()}>카카오로 로그인</button></section></div></main>;
+  if (!authorized) return <main className="admin-app"><header className="admin-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>관리자</b></header><div className="admin-content"><div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>접근할 수 없어요</h1><p>이 계정에는 상품 관리 권한이 없습니다.</p></div><section className="admin-card"><p className="admin-help">관리 권한은 Supabase의 `profiles.role`을 `operator`로 설정한 계정에만 부여됩니다.</p></section></div></main>;
+
+  return <main className="admin-app">
+    <header className="admin-top"><a href="/"><ArrowLeft size={17}/>고객 화면</a><b>맵소사 관리자</b><Store size={18} color="#2f8f4e"/></header>
+    <div className="admin-content">
+      <div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>상품 관리</h1><p>등록한 상품은 고객의 모바일 화면에 바로 노출돼요.</p></div>
+      {notice && <div className={error ? "admin-notice error" : "admin-notice"}>{!error && <Check size={14} style={{ verticalAlign: "middle", marginRight: 5 }}/>} {notice}</div>}
+      <form className="admin-card admin-fields" onSubmit={(event) => void addProduct(event)}>
+        <h2>새 상품 등록</h2>
+        <div className="admin-field"><label htmlFor="product-store">판매 청과점</label><select id="product-store" value={selectedStore} onChange={(event) => setSelectedStore(event.target.value)} required><option value="">청과점을 선택해 주세요</option>{stores.filter((store) => store.active).map((store) => <option key={store.id} value={store.id}>{store.name} · {store.area}</option>)}</select></div>
+        <div className="admin-inline-title"><span className="admin-help">아직 가게가 등록되지 않았다면</span><button type="button" onClick={() => setStoreOpen((open) => !open)}>{storeOpen ? <X size={13}/> : <Plus size={13}/>}청과점 등록</button></div>
+        {storeOpen && <div className="admin-block"><div className="admin-field-pair"><div className="admin-field"><label htmlFor="store-name">가게 이름</label><input id="store-name" value={storeName} onChange={(event) => setStoreName(event.target.value)} required/></div><div className="admin-field"><label htmlFor="store-area">동네/시장</label><input id="store-area" value={storeArea} onChange={(event) => setStoreArea(event.target.value)} placeholder="예: 망원시장" required/></div></div><div className="admin-field"><label htmlFor="store-address">가게 주소</label><input id="store-address" value={storeAddress} onChange={(event) => setStoreAddress(event.target.value)} required/></div><div className="admin-field-pair"><div className="admin-field"><label htmlFor="store-phone">연락처 (선택)</label><input id="store-phone" value={storePhone} onChange={(event) => setStorePhone(event.target.value)} inputMode="tel" placeholder="010-0000-0000"/></div><div className="admin-field"><label htmlFor="store-hours">마감 시간</label><input id="store-hours" type="time" value={storeHours} onChange={(event) => setStoreHours(event.target.value)} required/></div></div><div className="admin-field"><label>정기 휴무</label><div className="admin-day-checks">{[[0,"일"],[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"]].map(([value,label]) => <label key={value}><input type="checkbox" checked={storeDaysOff.includes(Number(value))} onChange={(event) => setStoreDaysOff((days) => event.target.checked ? [...days, Number(value)] : days.filter((day) => day !== Number(value)))}/>{label}</label>)}</div></div><button className="admin-save" type="button" disabled={saving} onClick={() => void addStore()}>청과점 저장</button></div>}
+        <div className="admin-field"><label htmlFor="product-name">상품명</label><input id="product-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="예: 아삭한 햇사과" required/></div>
+        <div className="admin-field"><label htmlFor="product-spec">중량 / 규격</label><input id="product-spec" value={specification} onChange={(event) => setSpecification(event.target.value)} placeholder="예: 부사 · 500g" required/></div>
+        <div className="admin-field"><label htmlFor="slot-size">공동구매 모집 단위</label><input id="slot-size" type="number" min="2" max="100" value={slotSize} onChange={(event) => setSlotSize(event.target.value)} required/><p className="admin-help">예: 4개를 모으면 한 세트로 확정돼요. 상품은 메인 목록 한 곳에 함께 표시됩니다.</p></div>
+        <div className="admin-field"><label htmlFor="available-quantity">등록 수량 (선택)</label><input id="available-quantity" type="number" min="0" inputMode="numeric" value={availableQuantity} onChange={(event) => setAvailableQuantity(event.target.value)} placeholder="제한 없이 모집하려면 비워 두세요"/></div>
+        <div className="admin-field-pair"><div className="admin-field"><label htmlFor="consumer-price">판매 가격 (원)</label><input id="consumer-price" type="number" min="0" inputMode="numeric" value={consumerPrice} onChange={(event) => setConsumerPrice(event.target.value)} required/></div><div className="admin-field"><label htmlFor="supply-price">매입 가격 (원)</label><input id="supply-price" type="number" min="0" inputMode="numeric" value={supplyPrice} onChange={(event) => setSupplyPrice(event.target.value)} required/></div></div>
+        <div className="admin-field-pair"><div className="admin-field"><label htmlFor="comparison-price">비교 가격 (선택)</label><input id="comparison-price" type="number" min="0" inputMode="numeric" value={comparisonPrice} onChange={(event) => setComparisonPrice(event.target.value)} placeholder="원"/></div><div className="admin-field"><label htmlFor="comparison-vendor">비교처</label><input id="comparison-vendor" value={comparisonVendor} onChange={(event) => setComparisonVendor(event.target.value)} placeholder="예: 주변 마트"/></div></div>
+        <div className="admin-field"><label htmlFor="product-description">상품 설명 (선택)</label><textarea id="product-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="산지, 맛, 보관 방법 등을 적어 주세요."/></div>
+        <div className="admin-field"><label htmlFor="product-image">상품 이미지 주소 (선택)</label><input id="product-image" type="url" inputMode="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="https://…"/></div>
+        <button className="admin-save" type="submit" disabled={saving || stores.length === 0}>{saving ? "저장 중…" : "상품 등록하기"}</button>
+      </form>
+
+      <section className="admin-card"><h2>등록된 상품 <span style={{ color: "#7a847b", fontWeight: 500 }}>({items.length})</span></h2>{items.length ? <div className="admin-product-list">{items.map((item) => { const store = Array.isArray(item.stores) ? item.stores[0] : item.stores; return <article className="admin-product-row" key={item.id}><span className="admin-product-emoji">🍎</span><div className="admin-product-copy"><b>{item.name} · {item.specification}</b><span>{store?.name ?? "청과점"} · {won(item.consumer_price)}원 · {item.slot_size}개 단위</span></div><button className={item.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleProduct(item)}>{item.active ? "판매 중" : "숨김"}</button></article>; })}</div> : <div className="admin-empty">아직 등록된 상품이 없어요. 위에서 상품을 등록해 주세요.</div>}</section>
+      <section className="admin-card"><h2>등록된 청과점 <span style={{ color: "#7a847b", fontWeight: 500 }}>({stores.length})</span></h2>{stores.length ? <div className="admin-product-list">{stores.map((store) => <article className="admin-product-row" key={store.id}><span className="admin-product-emoji"><Store size={18}/></span><div className="admin-product-copy"><b>{store.name}</b><span>{store.area} · {store.address}</span></div><span className={store.active ? "active-toggle" : "active-toggle inactive"}>{store.active ? "운영 중" : "중지"}</span></article>)}</div> : <div className="admin-empty">먼저 새 상품 등록에서 청과점을 추가해 주세요.</div>}</section>
+    </div>
+  </main>;
+}
+
