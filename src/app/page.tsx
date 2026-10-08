@@ -74,7 +74,7 @@ export default function Home() {
     void Promise.all([productsRequest, totalsRequest]).then(([{ data }, { data: orderTotals }]) => {
       if (!active) return;
       if (data) {
-        const quantities = new Map((orderTotals ?? []).map((entry: { product_id: string; applied_quantity: number }) => [entry.product_id, Number(entry.applied_quantity)]));
+        const quantities = new Map<string, number>((orderTotals ?? []).map((entry: { product_id: string; applied_quantity: number }) => [entry.product_id, Number(entry.applied_quantity)] as const));
         const dayIndex = pickup === "수요일" ? 3 : 6;
         setCatalog(data.flatMap((row) => {
           const store = (Array.isArray(row.stores) ? row.stores[0] : row.stores) as { name?: string; area?: string; closed_weekdays?: number[] } | null;
