@@ -53,7 +53,8 @@ export function StoreMap({ stores, apiKey }: { stores: StoreLocation[]; apiKey?:
   const mapRef = useRef<KakaoMap | null>(null);
   const markerPositions = useRef(new Map<string, LatLng>());
   const [selectedStore, setSelectedStore] = useState<StoreLocation | null>(null);
-  const [mapError, setMapError] = useState(false);
+  const [mapError, setMapError] = useState<"sdk" | "address" | null>(null);
+  const [unlocatedCount, setUnlocatedCount] = useState(0);
 
   useEffect(() => {
     if (!apiKey || !mapElement.current || stores.length === 0) return;
@@ -87,11 +88,14 @@ export function StoreMap({ stores, apiKey }: { stores: StoreLocation[]; apiKey?:
           }
 
           completed += 1;
-          if (completed === stores.length && located > 0) map.setBounds(bounds);
-          if (completed === stores.length && located === 0) setMapError(true);
+          if (completed === stores.length && located > 0) {
+            map.setBounds(bounds);
+            setUnlocatedCount(stores.length - located);
+          }
+          if (completed === stores.length && located === 0) setMapError("address");
         });
       }
-    }).catch(() => { if (!cancelled) setMapError(true); });
+    }).catch(() => { if (!cancelled) setMapError("sdk"); });
 
     return () => {
       cancelled = true;
@@ -114,7 +118,9 @@ export function StoreMap({ stores, apiKey }: { stores: StoreLocation[]; apiKey?:
     {stores.length === 0 ? <div className="store-map-empty">등록된 가게가 아직 없어요.</div> : <>
       <div className="store-map-canvas" ref={mapElement} aria-label="등록된 청과점 위치 지도">
         {!apiKey && <div className="store-map-message">지도를 준비하고 있어요.</div>}
-        {mapError && <div className="store-map-message">주소를 지도에서 찾지 못했어요. 관리자에게 가게 주소를 확인해 주세요.</div>}
+        {mapError === "sdk" && <div className="store-map-message">지도를 불러오지 못했어요. Kakao Developers에서 JavaScript 키와 사이트 도메인 설정을 확인해 주세요.</div>}
+        {mapError === "address" && <div className="store-map-message">등록된 가게 주소에서 지도 위치를 찾지 못했어요. 주소를 도로명 주소로 확인해 주세요.</div>}
+        {!mapError && unlocatedCount > 0 && <div className="store-map-message">{unlocatedCount}개 가게의 주소를 지도에서 찾지 못했어요. 주소를 확인해 주세요.</div>}
       </div>
       <div className="store-map-list">{stores.map((store) => <button key={store.id} className={selectedStore?.id === store.id ? "store-map-chip selected" : "store-map-chip"} onClick={() => focusStore(store)}><MapPin size={13}/><span>{store.name}</span></button>)}</div>
       {selectedStore && <div className="store-map-selected"><div><b>{selectedStore.name}</b><span>{selectedStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(`${selectedStore.name} ${selectedStore.address}`)}`} target="_blank" rel="noreferrer">길찾기 <ArrowUpRight size={14}/></a></div>}
