@@ -9,6 +9,7 @@ import { AdminOrders } from "@/components/admin-orders";
 type StoreRow = { id: string; name: string; area: string; address: string; opening_time: string | null; closing_time: string; closed_weekdays: number[]; active: boolean };
 type ComparisonRow = { id: string; vendor: string; price: number; specification: string };
 type ProductRow = { id: string; store_id: string; name: string; specification: string; description: string | null; image_url: string | null; consumer_price: number; type: "slot" | "instant"; slot_size: number | null; available_quantity: number | null; active: boolean; stores: StoreRow | StoreRow[] | null; price_comparisons: ComparisonRow[] };
+const PRODUCT_EMOJIS = ["🍎", "🍏", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍑", "🍒", "🥭", "🍍", "🥝", "🥑", "🥬", "🥕", "🍅", "🧅"] as const;
 
 export default function AdminPage() {
   const [loading, setLoading] = useState(true);
@@ -28,6 +29,7 @@ export default function AdminPage() {
   const [specification, setSpecification] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [productEmoji, setProductEmoji] = useState<(typeof PRODUCT_EMOJIS)[number]>("🍎");
   const [consumerPrice, setConsumerPrice] = useState("");
   const [comparisonPrice, setComparisonPrice] = useState("");
   const [comparisonVendor, setComparisonVendor] = useState("");
@@ -90,7 +92,8 @@ export default function AdminPage() {
     if (!selectedStore) { showNotice("먼저 청과점을 등록해 주세요.", true); return; }
     setSaving(true);
     const values = {
-      store_id: selectedStore, name: name.trim(), specification: specification.trim(), description: description.trim(), image_url: imageUrl.trim() || null,
+      // image_url also stores the selected emoji when no product photo URL is provided.
+      store_id: selectedStore, name: name.trim(), specification: specification.trim(), description: description.trim(), image_url: imageUrl.trim() || productEmoji,
       consumer_price: Number(consumerPrice), type,
       slot_size: type === "slot" && slotSize ? Number(slotSize) : null, available_quantity: availableQuantity ? Number(availableQuantity) : null,
     };
@@ -115,10 +118,12 @@ export default function AdminPage() {
     showNotice(editingProductId ? "상품 정보를 수정했어요." : "상품을 등록했어요. 고객 화면에 바로 표시됩니다.");
   }
   function resetProductForm() {
-    setEditingProductId(null); setName(""); setSpecification(""); setDescription(""); setImageUrl(""); setConsumerPrice(""); setComparisonPrice(""); setComparisonVendor(""); setAvailableQuantity(""); setSlotSize(""); setType("slot");
+    setEditingProductId(null); setName(""); setSpecification(""); setDescription(""); setImageUrl(""); setProductEmoji("🍎"); setConsumerPrice(""); setComparisonPrice(""); setComparisonVendor(""); setAvailableQuantity(""); setSlotSize(""); setType("slot");
   }
   function startEditingProduct(item: ProductRow) {
-    setEditingProductId(item.id); setSelectedStore(item.store_id); setName(item.name); setSpecification(item.specification); setDescription(item.description ?? ""); setImageUrl(item.image_url ?? ""); setConsumerPrice(String(item.consumer_price)); setType(item.type); setSlotSize(item.slot_size ? String(item.slot_size) : ""); setAvailableQuantity(item.available_quantity === null ? "" : String(item.available_quantity));
+    const savedImage = item.image_url ?? "";
+    const savedEmoji = PRODUCT_EMOJIS.find((emoji) => emoji === savedImage);
+    setEditingProductId(item.id); setSelectedStore(item.store_id); setName(item.name); setSpecification(item.specification); setDescription(item.description ?? ""); setImageUrl(savedImage.startsWith("http") ? savedImage : ""); setProductEmoji(savedEmoji ?? "🍎"); setConsumerPrice(String(item.consumer_price)); setType(item.type); setSlotSize(item.slot_size ? String(item.slot_size) : ""); setAvailableQuantity(item.available_quantity === null ? "" : String(item.available_quantity));
     const comparison = item.price_comparisons?.[0];
     setComparisonPrice(comparison ? String(comparison.price) : ""); setComparisonVendor(comparison?.vendor ?? "");
     document.getElementById("product-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -171,11 +176,12 @@ export default function AdminPage() {
         <div className="admin-field"><label htmlFor="consumer-price">판매 가격 (원)</label><input id="consumer-price" type="number" min="0" inputMode="numeric" value={consumerPrice} onChange={(event) => setConsumerPrice(event.target.value)} required/></div>
         <div className="admin-field-pair"><div className="admin-field"><label htmlFor="comparison-price">비교 가격 (선택)</label><input id="comparison-price" type="number" min="0" inputMode="numeric" value={comparisonPrice} onChange={(event) => setComparisonPrice(event.target.value)} placeholder="원"/></div><div className="admin-field"><label htmlFor="comparison-vendor">비교처</label><input id="comparison-vendor" value={comparisonVendor} onChange={(event) => setComparisonVendor(event.target.value)} placeholder="예: 주변 마트"/></div></div>
         <div className="admin-field"><label htmlFor="product-description">상품 설명 (선택)</label><textarea id="product-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="산지, 맛, 보관 방법 등을 적어 주세요."/></div>
+        <div className="admin-field"><span className="admin-field-label">상품 이모지</span><div className="product-emoji-picker" role="group" aria-label="상품 이모지 선택">{PRODUCT_EMOJIS.map((emoji) => <button key={emoji} type="button" className={productEmoji === emoji ? "selected" : ""} aria-label={`${emoji} 선택`} aria-pressed={productEmoji === emoji} onClick={() => setProductEmoji(emoji)}>{emoji}</button>)}</div><small className="admin-help">상품 사진 주소를 입력하면 사진이 보이고, 비워 두면 선택한 이모지가 보여요.</small></div>
         <div className="admin-field"><label htmlFor="product-image">상품 이미지 주소 (선택)</label><input id="product-image" type="url" inputMode="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="https://…"/></div>
         <button className="admin-save" type="submit" disabled={saving || stores.length === 0}>{saving ? "저장 중…" : editingProductId ? "상품 수정 저장" : "상품 등록하기"}</button>
       </form>
 
-      <section className="admin-card"><h2>등록된 상품 <span style={{ color: "#7a847b", fontWeight: 500 }}>({items.length})</span></h2>{items.length ? <div className="admin-product-list">{items.map((item) => { const store = Array.isArray(item.stores) ? item.stores[0] : item.stores; return <article className="admin-product-row" key={item.id}><span className="admin-product-emoji">🍎</span><div className="admin-product-copy"><b>{item.name} · {item.specification}</b><span>{store?.name ?? "청과점"} · {won(item.consumer_price)}원{item.slot_size ? ` · ${item.slot_size}개 단위` : " · 단위 제한 없음"}</span></div><div className="admin-row-actions"><button className="admin-edit" onClick={() => startEditingProduct(item)}>수정</button><button className={item.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleProduct(item)}>{item.active ? "판매 중" : "숨김"}</button></div></article>; })}</div> : <div className="admin-empty">아직 등록된 상품이 없어요. 위에서 상품을 등록해 주세요.</div>}</section>
+      <section className="admin-card"><h2>등록된 상품 <span style={{ color: "#7a847b", fontWeight: 500 }}>({items.length})</span></h2>{items.length ? <div className="admin-product-list">{items.map((item) => { const store = Array.isArray(item.stores) ? item.stores[0] : item.stores; const visual = item.image_url || "🍎"; return <article className="admin-product-row" key={item.id}><span className="admin-product-emoji">{visual.startsWith("http") ? <img src={visual} alt=""/> : visual}</span><div className="admin-product-copy"><b>{item.name} · {item.specification}</b><span>{store?.name ?? "청과점"} · {won(item.consumer_price)}원{item.slot_size ? ` · ${item.slot_size}개 단위` : " · 단위 제한 없음"}</span></div><div className="admin-row-actions"><button className="admin-edit" onClick={() => startEditingProduct(item)}>수정</button><button className={item.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleProduct(item)}>{item.active ? "판매 중" : "숨김"}</button></div></article>; })}</div> : <div className="admin-empty">아직 등록된 상품이 없어요. 위에서 상품을 등록해 주세요.</div>}</section>
       <section className="admin-card"><h2>등록된 청과점 <span style={{ color: "#7a847b", fontWeight: 500 }}>({stores.length})</span></h2>{stores.length ? <div className="admin-product-list">{stores.map((store) => <article className="admin-product-row" key={store.id}><span className="admin-product-emoji"><Store size={18}/></span><div className="admin-product-copy"><b>{store.name}</b><span>{store.area} · {store.address} · {store.opening_time ? `${store.opening_time.slice(0, 5)} 오픈` : "오픈 시간 미등록"}–{store.closing_time.slice(0, 5)} 마감</span></div><button className={store.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleStore(store)}>{store.active ? "운영 중" : "중지"}</button></article>)}</div> : <div className="admin-empty">위의 청과점 등록에서 첫 번째 가게를 추가해 주세요. 필요한 만큼 계속 등록할 수 있어요.</div>}</section>
       </>}
     </div>
