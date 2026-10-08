@@ -13,11 +13,11 @@ Supabase 설정 전에는 상품이 표시되지 않습니다. 상품은 `/admin
 
 ## 카카오 로그인
 
-Supabase Dashboard의 **Authentication → Providers → Kakao**에서 Kakao REST API key와 Client Secret을 등록하고, Kakao Developers 앱에 Supabase Auth callback URL을 허용해야 합니다. Supabase Auth URL Configuration에는 로컬 URL과 배포 도메인을 Redirect URL로 등록합니다. 앱은 `/auth/callback`에서 PKCE code를 세션으로 교환합니다.
+Kakao Developers에서 Kakao Login과 OpenID Connect를 활성화하고, Redirect URI로 `{서비스 도메인}/auth/kakao/callback`을 등록합니다. 이 앱은 `openid`만 요청해 닉네임, 프로필 사진, 이메일을 요청하지 않습니다. Supabase Dashboard의 **Authentication → Providers → Kakao**에는 REST API key와 Client Secret을 등록하고, 이메일 없이 가입 허용을 켭니다. Vercel 환경 변수에는 `KAKAO_REST_API_KEY`와 서버 전용 `KAKAO_CLIENT_SECRET`을 추가합니다. Supabase Auth URL Configuration에는 로컬 URL과 배포 도메인을 Redirect URL로 등록합니다.
 
 ## 배포
 
-GitHub 저장소를 Vercel 프로젝트에 연결하면 기본 Next.js 빌드 설정으로 배포됩니다. Vercel 프로젝트에 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL` 환경 변수를 Preview/Production별로 추가하세요. Kakao client secret과 Supabase service-role key는 Supabase 대시보드에만 보관하고 브라우저 환경 변수로 공개하지 마세요.
+GitHub 저장소를 Vercel 프로젝트에 연결하면 기본 Next.js 빌드 설정으로 배포됩니다. Vercel 프로젝트에 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` 환경 변수를 Preview/Production별로 추가하세요. Kakao client secret과 Supabase service-role key는 브라우저 환경 변수로 공개하지 마세요.
 
 ## 관리자 상품 등록
 
@@ -32,4 +32,3 @@ GitHub 저장소를 Vercel 프로젝트에 연결하면 기본 Next.js 빌드 �
 - 다음 구현: 픽업 회차 등록, 입금 확인, 슬롯 배수 확정, 청과점 체크리스트 SMS 발송과 토큰 링크, 주문 내역·상태 조회, 입금 계좌 설정, 전자 픽업증명서 QR. 실제 주문에는 픽업 회차 등록이 필요합니다.
 
 슬롯 확정·환불 이체는 금액과 주문 상태를 변경하는 작업이므로, 운영자 어드민과 슬롯 배수 확정 처리를 추가하고 운영자 권한을 검토한 뒤 실결제 운영을 시작해야 합니다. 미입금 주문 만료는 Supabase Cron을 사용합니다.
-

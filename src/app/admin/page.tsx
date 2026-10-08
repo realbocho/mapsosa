@@ -64,8 +64,7 @@ export default function AdminPage() {
   async function kakaoLogin() {
     const supabase = createClient();
     if (!supabase) { showNotice("Supabase와 Kakao 인증 환경 변수를 설정한 뒤 관리자 로그인을 사용할 수 있어요.", true); return; }
-    const { error: signInError } = await supabase.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: `${window.location.origin}/auth/callback?next=/admin` } });
-    if (signInError) showNotice(signInError.message, true);
+    window.location.assign("/auth/kakao/start?next=/admin");
   }
   async function addStore(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -153,4 +152,3 @@ export default function AdminPage() {
     </div>
   </main>;
 }
-

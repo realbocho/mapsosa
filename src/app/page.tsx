@@ -76,8 +76,7 @@ export default function Home() {
   async function signIn() {
     const supabase = createClient();
     if (!supabase) { notify("Supabase와 카카오 로그인 설정을 먼저 완료해 주세요"); return; }
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: `${window.location.origin}/auth/callback` } });
-    if (error) notify(error.message);
+    window.location.assign("/auth/kakao/start?next=/");
   }
   async function placeOrder() {
     if (!refundBank.trim() || !refundAccount.trim() || !refundHolder.trim() || !depositorName.trim()) { notify("환불 계좌와 입금자 정보를 입력해 주세요"); return; }
@@ -141,7 +140,7 @@ export default function Home() {
         })}</div> : <div className="mobile-empty"><span>🍐</span><b>아직 등록된 상품이 없어요</b><p>관리자가 상품을 등록하면 이곳에 보여요.</p><a href="/admin">관리자 상품 등록 <ArrowRight size={14}/></a></div>}
       </section>
 
-      <section className="mobile-start"><button className="kakao-start" onClick={signIn}>카카오로 시작하기</button><p>처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요.</p><a href="https://pf.kakao.com/_KxkIxaX/chat" target="_blank" rel="noreferrer">카카오톡 문의하기</a></section>
+      <section className="mobile-start"><button className="kakao-start" onClick={signIn}>카카오로 시작하기</button><p>처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요.</p></section>
       <footer className="mobile-footer">© 2026 MAPSOSA · 동네에서 나눠 사는 즐거움</footer>
     </div>
 
@@ -156,4 +155,3 @@ export default function Home() {
     </section></div>}
   </main>;
 }
-
