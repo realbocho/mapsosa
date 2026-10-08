@@ -64,7 +64,7 @@ export default function AdminPage() {
   function showNotice(message: string, isError = false) { setNotice(message); setError(isError); window.setTimeout(() => setNotice(""), 3500); }
   async function kakaoLogin() {
     const supabase = createClient();
-    if (!supabase) return;
+    if (!supabase) { showNotice("Supabase와 Kakao 인증 환경 변수를 설정한 뒤 관리자 로그인을 사용할 수 있어요.", true); return; }
     const { error: signInError } = await supabase.auth.signInWithOAuth({ provider: "kakao", options: { redirectTo: `${window.location.origin}/auth/callback?next=/admin` } });
     if (signInError) showNotice(signInError.message, true);
   }
@@ -109,7 +109,7 @@ export default function AdminPage() {
   }
 
   if (loading) return <main className="admin-app"><header className="admin-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>관리자</b></header><div className="admin-content"><div className="admin-empty">관리자 정보를 확인하고 있어요…</div></div></main>;
-  if (!signedIn) return <main className="admin-app"><header className="admin-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>관리자</b></header><div className="admin-content"><div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>관리자 로그인</h1><p>카카오 계정으로 로그인해 상품을 관리해요.</p></div><section className="admin-card"><button className="admin-save" onClick={() => void kakaoLogin()}>카카오로 로그인</button></section></div></main>;
+  if (!signedIn) return <main className="admin-app"><header className="admin-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>관리자</b></header><div className="admin-content"><div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>관리자 로그인</h1><p>카카오 계정으로 로그인해 상품을 관리해요.</p></div>{notice && <div className={error ? "admin-notice error" : "admin-notice"}>{notice}</div>}<section className="admin-card"><button className="admin-save" onClick={() => void kakaoLogin()}>카카오로 로그인</button></section></div></main>;
   if (!authorized) return <main className="admin-app"><header className="admin-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>관리자</b></header><div className="admin-content"><div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>접근할 수 없어요</h1><p>이 계정에는 상품 관리 권한이 없습니다.</p></div><section className="admin-card"><p className="admin-help">관리 권한은 Supabase의 `profiles.role`을 `operator`로 설정한 계정에만 부여됩니다.</p></section></div></main>;
 
   return <main className="admin-app">
