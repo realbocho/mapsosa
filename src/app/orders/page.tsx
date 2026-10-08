@@ -86,8 +86,13 @@ export default function OrdersPage() {
         const cancellationClosed = currentTime >= orderDeadlineTimestamp(order.pickup_date);
         const fullyRefunded = ["refunded", "late_payment_refund"].includes(order.status) && hasCompletedRefund;
         const visibleStatus = pendingRefund && ["partially_refunded", "refunded", "late_payment_refund"].includes(order.status) ? "최종 내역 처리 중" : order.status === "refunded" && completedRefunds.length > 0 ? "환불 완료" : completedRefunds.length > 0 && pass ? "확정 · 환불 완료" : statusText[order.status] ?? order.status;
+        const pickupStores = [...new Map(order.order_items.flatMap((item) => {
+          const store = item.products?.stores;
+          return store?.name ? [[`${store.name}-${store.address}`, store] as const] : [];
+        })).values()];
         return <article className="order-card" key={order.id}>
           <div className="order-card-top"><div><span className="order-date">픽업 {formatPickupDate(order.pickup_date)}</span><b>{order.order_number}</b></div><span className={`order-status ${pass ? "ready" : ""}`}>{visibleStatus}</span></div>
+          {pickupStores.length > 0 && <div className="order-pickup-stores"><b>픽업 가게</b>{pickupStores.map((store) => <div key={`${store.name}-${store.address}`}><strong>{store.name}</strong><span>{store.address || "가게 주소가 등록되지 않았어요."}</span></div>)}</div>}
           <div className="order-items">{order.order_items.map((item) => {
             const confirmed = item.confirmed_quantity ?? (fullyRefunded ? 0 : item.quantity);
             const refunded = item.refund_quantity || (fullyRefunded ? item.quantity : 0);
