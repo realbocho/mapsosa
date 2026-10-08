@@ -1,0 +1,47 @@
+import type { Metadata } from "next";
+import { ArrowLeft } from "lucide-react";
+import { LegalLinks } from "@/components/legal-links";
+
+export const metadata: Metadata = {
+  title: "개인정보처리방침 | 맵소사",
+  description: "맵소사의 개인정보 수집·이용·보관 안내입니다.",
+};
+
+const sections = [
+  {
+    title: "수집하는 항목과 목적",
+    groups: [
+      { heading: "가입할 때 받는 것", items: ["아이디, 비밀번호 — 로그인", "닉네임 — 이웃끼리 서로를 부르는 이름. 가게·참여자 화면에 보입니다", "휴대폰번호 — 본인 확인, 예약 확정·무산 안내 문자", "사는 동네 — 가까운 가게와 상품을 보여주기 위해"] },
+      { heading: "쓰면서 쌓이는 것", items: ["예약·참여·댓글 기록, 수령·노쇼·취소 횟수 — 거래 진행과 이용 제한 판단", "알림 설정과 기기 알림 주소(푸시 구독) — 앱 알림 발송", "나눠 사기 정산 계좌(예금주·계좌번호) — 참여자에게 보낼 계좌를 알려주기 위해. 입력한 사람만 저장됩니다", "동의 기록(동의 시각, IP, 브라우저 정보) — 언제 무엇에 동의했는지 증명", "문자 발송 기록(받는 번호, 보낸 내용, 발송 결과) — 안내가 실제로 갔는지 확인"] },
+      { heading: "받지 않는 것", items: ["결제 정보를 받지 않습니다. 물건값은 가게에서 직접 냅니다", "위치는 지도를 내 주변으로 옮길 때만 쓰고 서버에 저장하지 않습니다. 그 값은 이용자의 기기에만 남습니다", "주민등록번호 등 고유식별정보를 받지 않습니다"] },
+    ],
+  },
+  { title: "만 14세 미만", paragraphs: ["만 14세 미만은 가입할 수 없습니다. 가입 화면에서 확인하며, 나중에 알게 되면 그 계정과 정보를 지웁니다."] },
+  { title: "보유 기간과 파기", items: ["회원 정보(아이디, 닉네임, 번호, 동네, 계좌) — 탈퇴 후 3년간 보관한 뒤 지웁니다. 거래 분쟁이 뒤늦게 드러나는 일이 있어 전자상거래 관련 법령의 기록 보존 기간에 맞춥니다", "문자 발송 기록 — 발송일로부터 1년 뒤 지웁니다", "동의 기록 — 회원으로 있는 동안 두고, 탈퇴 시 함께 지웁니다", "법령이 더 긴 보관을 요구하는 항목은 그 기간을 따릅니다"], paragraphs: ["파기는 복구할 수 없는 방식으로 합니다. 데이터베이스 기록은 삭제하고, 종이 문서는 만들지 않습니다."] },
+  { title: "제3자 제공", paragraphs: ["이용자의 개인정보를 다른 곳에 팔거나 넘기지 않습니다. 다만 다음은 서비스가 돌아가기 위한 것이라 이용자에게 보이는 대로 쓰입니다."], items: ["닉네임과 예약 인원은 같은 상품에 참여한 이웃과 가게 사장님에게 보입니다", "사장님께 가는 픽업 명단에는 닉네임이 들어갑니다. 번호는 들어가지 않습니다"], after: "법령에 따라 수사기관이 적법한 절차로 요구하는 경우에는 그 범위에서 제공할 수 있습니다." },
+  { title: "처리 위탁", paragraphs: ["서비스를 돌리기 위해 아래 회사에 처리를 맡깁니다."], items: ["Supabase — 회원 정보·거래 기록 보관, 로그인 처리", "Vercel — 서비스 호스팅, 접속 성능 측정", "솔라피(Solapi) — 안내 문자 발송", "카카오 — 지도 표시(지도는 이용자 브라우저에서 직접 불러옵니다)", "브라우저 제조사(구글·애플 등) — 앱 알림 전달 경로"], after: "위탁받은 회사는 맡은 일 밖으로 정보를 쓸 수 없습니다." },
+  { title: "이용자의 권리", paragraphs: ["언제든 다음을 요구할 수 있습니다."], items: ["내 정보 열람 — 내 정보 화면에서 바로 볼 수 있습니다", "정정 — 닉네임·동네·계좌는 직접 고칠 수 있습니다. 그 밖의 항목은 문의로 요청해 주세요", "삭제(탈퇴)와 처리 정지 — 내 정보 화면의 ‘탈퇴하기’에서 직접 할 수 있습니다. 진행 중인 예약·나눠 사기·공구가 있으면 이웃에게 피해가 가므로, 그것을 정리한 뒤에 처리됩니다", "동의 철회 — 알림은 설정에서 끌 수 있습니다. 다만 예약 확정·무산 안내 문자는 그 날 가게에 갈지 말지가 걸린 정보라 거래가 있는 동안에는 보냅니다"], after: "요구를 받으면 지체 없이 처리하고, 처리 전까지는 그 정보를 이용하지 않습니다." },
+  { title: "안전 조치", items: ["비밀번호는 되돌릴 수 없는 방식으로 저장합니다", "회원 정보는 접근 권한을 나눠 두고, 운영자 화면은 별도 비밀번호로 잠급니다", "통신은 모두 암호화(HTTPS)합니다", "휴대폰번호는 화면에 뒤 네 자리만 보이게 하고, 전체 번호는 운영에 필요한 곳에서만 다룹니다"] },
+  { title: "문의", paragraphs: ["개인정보 보호책임자는 서비스를 운영하는 개인 운영자 본인입니다. 문의·요구는 서비스 안의 카카오톡 문의하기로 받고, 접수한 날로부터 영업일 기준 3일 안에 답합니다."] },
+  { title: "방침 변경", paragraphs: ["내용이 바뀌면 바뀐 방침을 이 화면에 올리고, 중요한 변경은 앱 알림으로 알립니다. 이전 버전도 그대로 보관합니다."] },
+];
+
+export default function PrivacyPage() {
+  return <main className="legal-app">
+    <header className="legal-header"><a href="/"><ArrowLeft size={17}/>맵소사</a><span>개인정보 안내</span></header>
+    <article className="legal-content">
+      <span className="section-kicker">YOUR PRIVACY MATTERS</span>
+      <h1>개인정보처리방침</h1>
+      <p className="legal-lead">맵소사(이하 “서비스”)는 개인이 운영하는 동네 공동구매 서비스입니다. 이용자의 개인정보를 소중히 다루며, 개인정보 보호법 등 관련 법령을 지킵니다. 서비스가 어떤 정보를 왜 받는지, 얼마나 두는지, 어디에 맡기는지를 아래에 모두 적습니다.</p>
+      {sections.map((section, index) => <section className="legal-section" key={section.title}>
+        <h2><span>{index + 1}</span>{section.title}</h2>
+        {"groups" in section && section.groups?.map((group) => <div className="legal-subsection" key={group.heading}><h3>{group.heading}</h3><ul>{group.items.map((item) => <li key={item}>{item}</li>)}</ul></div>)}
+        {"paragraphs" in section && section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+        {"items" in section && section.items && <ul>{section.items.map((item) => <li key={item}>{item}</li>)}</ul>}
+        {"after" in section && section.after && <p>{section.after}</p>}
+      </section>)}
+      <div className="legal-related"><a href="/terms">이용동의안내 보기 <span>→</span></a></div>
+    </article>
+    <footer className="legal-page-footer"><LegalLinks/><small>© 2026 MAPSOSA</small></footer>
+  </main>;
+}

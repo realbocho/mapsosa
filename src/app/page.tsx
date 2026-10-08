@@ -5,6 +5,7 @@ import { ArrowDown, ArrowRight, Check, Clock3, MapPin, Minus, Plus, ShoppingBag,
 import { createClient } from "@/lib/supabase/client";
 import { won, type Product } from "@/lib/products";
 import { StoreMap, type StoreLocation } from "@/components/store-map";
+import { LegalLinks } from "@/components/legal-links";
 import { formatPickupDate, nextPickupDate, type PickupDay } from "@/lib/pickup-dates";
 
 export default function Home() {
@@ -197,7 +198,7 @@ export default function Home() {
       <StoreMap stores={stores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId}/>
 
       <section className="mobile-start">{authStatus === "signed_in" ? <><div className="kakao-start kakao-authenticated" role="status">카카오 로그인 완료</div><button className="kakao-logout" onClick={() => void signOut()}>로그아웃</button></> : <button className="kakao-start" onClick={signIn} disabled={authStatus === "checking"}>{authStatus === "checking" ? "로그인 확인 중…" : "카카오로 시작하기"}</button>}<p>{authStatus === "signed_in" ? "로그인 상태로 예약을 진행할 수 있어요." : "처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요."}</p></section>
-      <footer className="mobile-footer">© 2026 MAPSOSA · 동네에서 나눠 사는 즐거움</footer>
+      <footer className="mobile-footer"><LegalLinks/>© 2026 MAPSOSA · 동네에서 나눠 사는 즐거움</footer>
     </div>
 
     {count > 0 && <button className="mobile-floating-cart" onClick={() => setCheckout(true)}><span><ShoppingBag size={17}/><b>{count}</b></span><strong>예약 목록 보기</strong><em>{won(total)}원</em><ArrowRight size={16}/></button>}

@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
 import { formatPickupDate } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
+import { LegalLinks } from "@/components/legal-links";
 
 type OrderItem = { id: string; quantity: number; confirmed_quantity: number | null; refund_quantity: number; unit_price: number; products: { name: string; specification: string; stores: { name: string; address: string } | null } | null };
 type PickupPass = { token: string; issued_at: string; item_snapshot: { name: string; specification: string; quantity: number }[]; completed_at: string | null };
@@ -86,6 +87,7 @@ export default function OrdersPage() {
         </article>;
       })}</div>}
       <p className="pickup-policy">픽업은 선택한 날짜에 가게에서 직접 수령해 주세요. 당일 미수령 상품은 폐기되며 환불되지 않습니다.</p>
+      <LegalLinks />
     </div>
     {activePass && <div className="ticket-backdrop" onClick={() => setActivePass(null)}><section className="pickup-ticket" onClick={(event) => event.stopPropagation()}>
       <button className="ticket-close" onClick={() => setActivePass(null)} aria-label="닫기"><X size={18}/></button><span className="section-kicker">MAPSOSA PICKUP</span><h2>주문확인서</h2><b className="ticket-date">{formatPickupDate(activePass.order.pickup_date)}</b><p>픽업 날짜 당일 수령이 원칙입니다</p>
