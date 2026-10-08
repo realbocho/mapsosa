@@ -119,7 +119,7 @@ export function AdminOrders() {
     group.products.push(item);
     group.amount += item.amount;
     group.amountReady = group.amountReady && item.amountReady;
-    groups.set(item.store, group);
+    groups.set(item.storeId, group);
     return groups;
   }, new Map<string, { id: string; name: string; products: ProductTotal[]; amount: number; amountReady: boolean }>()).values()].sort((a, b) => a.name.localeCompare(b.name));
   const paymentOrders = orders.filter((order) => order.status === "awaiting_payment" || ["paid_recruiting", "slot_confirmed", "store_checking"].includes(order.status) || Boolean(order.cancellation_requested_at) || order.refunds?.some((refund) => !refund.transferred_at));
