@@ -170,7 +170,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
         {!mapError && unlocatedCount > 0 && <div className="store-map-message">{unlocatedCount}개 가게의 주소를 지도에서 찾지 못했어요. 주소를 확인해 주세요.</div>}
       </div>
       {variant === "default" && <div className="store-map-list">{stores.map((store) => <button key={store.id} className={selectedStore?.id === store.id ? "store-map-chip selected" : "store-map-chip"} onClick={() => focusStore(store)}><MapPin size={13}/><span>{store.name}</span></button>)}</div>}
-      {variant === "default" && selectedStore && <div className="store-map-selected"><div><b>{selectedStore.name}</b><span>{selectedStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(`${selectedStore.name} ${selectedStore.address}`)}`} target="_blank" rel="noreferrer">길찾기 <ArrowUpRight size={14}/></a></div>}
+      {variant === "default" && selectedStore && <div className="store-map-selected"><div><b>{selectedStore.name}</b><span>{selectedStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedStore.address)}`} target="_blank" rel="noreferrer">길찾기 <ArrowUpRight size={14}/></a></div>}
     </>}
   </section>;
 }
