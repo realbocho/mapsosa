@@ -25,7 +25,7 @@ export default function GuidePage() {
       <h1>주문부터 픽업까지</h1>
       <p className="legal-lead">동네 청과점 상품을 함께 주문하고, 확정된 내역을 확인한 뒤 가게에서 직접 받아요.</p>
 
-      <section className="guide-deadline"><CalendarDays size={18}/><div><b>주문·취소 마감</b><span>픽업일 전날 오전 10시까지 주문을 취소할 수 있어요.</span></div><small>수요일 픽업은 화요일, 토요일 픽업은 금요일</small></section>
+      <section className="guide-deadline"><CalendarDays size={18}/><div><b>주문·취소 마감</b><span>픽업일 전날 오전 10시까지 주문을 하거나 취소할 수 있어요.</span></div><small>수요일 픽업은 화요일, 토요일 픽업은 금요일</small></section>
 
       <section className="guide-steps" aria-label="구매자 이용 순서">
         {customerSteps.map(({ icon: Icon, title, text }, index) => <article className="guide-step" key={title}><span className="guide-step-number">{String(index + 1).padStart(2, "0")}</span><span className="guide-step-icon"><Icon size={17}/></span><div><h2>{title}</h2><p>{text}</p></div></article>)}
