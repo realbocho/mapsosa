@@ -6,7 +6,7 @@ import { ArrowUpRight, MapPin } from "lucide-react";
 export type StoreLocation = { id: string; name: string; area: string; address: string };
 
 type LatLng = object;
-type KakaoMap = { panTo: (position: LatLng) => void; setBounds: (bounds: object) => void; setLevel: (level: number) => void };
+type KakaoMap = { setBounds: (bounds: object) => void; jump: (position: LatLng, level: number, options?: { animate?: boolean }) => void };
 type KakaoMarker = object;
 type GeocodeResult = { x: string; y: string };
 type KakaoApi = {
@@ -20,7 +20,7 @@ type KakaoApi = {
       Geocoder: new () => { addressSearch: (address: string, callback: (results: GeocodeResult[], status: string) => void, options?: { analyze_type?: string }) => void };
       Status: { OK: string };
     };
-    event: { addListener: (target: KakaoMarker, event: string, callback: () => void) => void };
+    event: { addListener: (target: object, event: string, callback: () => void) => void };
   };
 };
 
@@ -51,6 +51,8 @@ function loadKakaoMap(key: string): Promise<KakaoApi> {
 export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLocation[]; apiKey?: string; selectedStoreId?: string | null }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<KakaoMap | null>(null);
+  const markersReady = useRef(false);
+  const boundsFitFallback = useRef<number | undefined>(undefined);
   const markerPositions = useRef(new Map<string, LatLng>());
   const [selectedStore, setSelectedStore] = useState<StoreLocation | null>(null);
   const [mapError, setMapError] = useState<"sdk" | "address" | null>(null);
@@ -59,6 +61,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
 
   useEffect(() => {
     if (!apiKey || !mapElement.current || stores.length === 0) return;
+    markersReady.current = false;
     let cancelled = false;
     void loadKakaoMap(apiKey).then((kakao) => {
       if (cancelled || !mapElement.current) return;
@@ -71,6 +74,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
       const bounds = new kakao.maps.LatLngBounds();
       let completed = 0;
       let located = 0;
+      let boundsFitPending = false;
 
       function finishStore(store: StoreLocation, x?: string, y?: string) {
         if (cancelled) return;
@@ -82,17 +86,33 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
           located += 1;
           kakao.maps.event.addListener(marker, "click", () => {
             setSelectedStore(store);
-            map.panTo(position);
-            map.setLevel(3);
+            map.jump(position, 3, { animate: false });
           });
         }
         completed += 1;
-        if (completed === stores.length) setMarkersVersion((version) => version + 1);
         if (completed === stores.length && located > 0) {
+          boundsFitPending = true;
+          kakao.maps.event.addListener(map, "idle", () => {
+            if (!boundsFitPending || cancelled) return;
+            boundsFitPending = false;
+            markersReady.current = true;
+            if (boundsFitFallback.current !== undefined) window.clearTimeout(boundsFitFallback.current);
+            setMarkersVersion((version) => version + 1);
+          });
           map.setBounds(bounds);
           setUnlocatedCount(stores.length - located);
+          boundsFitFallback.current = window.setTimeout(() => {
+            if (!boundsFitPending || cancelled) return;
+            boundsFitPending = false;
+            markersReady.current = true;
+            setMarkersVersion((version) => version + 1);
+          }, 700);
         }
-        if (completed === stores.length && located === 0) setMapError("address");
+        if (completed === stores.length && located === 0) {
+          setMapError("address");
+          markersReady.current = true;
+          setMarkersVersion((version) => version + 1);
+        }
       }
 
       for (const store of stores) {
@@ -106,6 +126,9 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
 
     return () => {
       cancelled = true;
+      markersReady.current = false;
+      if (boundsFitFallback.current !== undefined) window.clearTimeout(boundsFitFallback.current);
+      boundsFitFallback.current = undefined;
       mapRef.current = null;
       markerPositions.current.clear();
     };
@@ -118,17 +141,15 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
     }
     const store = stores.find((entry) => entry.id === selectedStoreId);
     const position = markerPositions.current.get(selectedStoreId);
-    if (!store || !position || !mapRef.current) return;
+    if (!store || !position || !mapRef.current || !markersReady.current) return;
     setSelectedStore(store);
-    mapRef.current.panTo(position);
-    mapRef.current.setLevel(3);
+    mapRef.current.jump(position, 3, { animate: false });
   }, [selectedStoreId, stores, markersVersion]);
 
   function focusStore(store: StoreLocation) {
     const position = markerPositions.current.get(store.id);
     if (position) {
-      mapRef.current?.panTo(position);
-      mapRef.current?.setLevel(3);
+      mapRef.current?.jump(position, 3, { animate: false });
     }
     setSelectedStore(store);
   }
