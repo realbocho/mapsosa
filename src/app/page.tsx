@@ -199,6 +199,10 @@ export default function Home() {
     }
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
   }, [catalog]);
+  const pickupStores = useMemo(() => {
+    const pickupStoreIds = new Set(storeCatalog.map((store) => store.id));
+    return stores.filter((store) => pickupStoreIds.has(store.id));
+  }, [storeCatalog, stores]);
   const [openStoreId, setOpenStoreId] = useState<string | null>(null);
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   function track(eventName: "store_detail_opened" | "add_to_cart" | "checkout_started", details: { store_id?: string; product_id?: string } = {}) {
@@ -297,6 +301,7 @@ export default function Home() {
 
       <section className="mobile-market">
         <div className="mobile-section-heading"><div><span className="section-kicker">{pickup.toUpperCase()}</span><h2>{pickup} 가게</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate}</span></div>
+        <StoreMap stores={pickupStores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId}/>
         {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : storeCatalog.length ? <div className="pickup-store-list">{storeCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
           const preview = store.products.slice(0, 3);
@@ -317,8 +322,6 @@ export default function Home() {
           </article>;
         })}</div> : <div className="mobile-empty"><span>🍐</span><b>{pickup} 픽업 가게가 아직 없어요</b><p>관리자가 가게와 과일을 등록하면 이곳에 보여요.</p><a href="/admin">관리자 상품 등록 <ArrowRight size={14}/></a></div>}
       </section>
-
-      <StoreMap stores={stores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId}/>
 
       <section className="mobile-start">{authStatus === "signed_in" ? <><div className="kakao-start kakao-authenticated" role="status">카카오 로그인 완료</div><button className="kakao-logout" onClick={() => void signOut()}>로그아웃</button></> : <button className="kakao-start" onClick={signIn} disabled={authStatus === "checking"}>{authStatus === "checking" ? "로그인 확인 중…" : "카카오로 시작하기"}</button>}<p>{authStatus === "signed_in" ? "로그인 상태로 예약을 진행할 수 있어요." : "처음 방문하셨나요? 카카오 계정으로 바로 가입할 수 있어요."}</p></section>
       {authStatus === "signed_in" && currentUserId && <AnalyticsConsent userId={currentUserId}/>}
