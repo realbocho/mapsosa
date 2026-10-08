@@ -25,6 +25,8 @@ export default function Home() {
   const [refundAccount, setRefundAccount] = useState("");
   const [refundHolder, setRefundHolder] = useState("");
   const [depositorName, setDepositorName] = useState("");
+  const [orderDetailsSaved, setOrderDetailsSaved] = useState(false);
+  const [savingOrderDetails, setSavingOrderDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
@@ -93,6 +95,22 @@ export default function Home() {
     return () => { active = false; subscription.unsubscribe(); };
   }, []);
   useEffect(() => {
+    if (!currentUserId) { setRefundBank(""); setRefundAccount(""); setRefundHolder(""); setDepositorName(""); setOrderDetailsSaved(false); return; }
+    setRefundBank(""); setRefundAccount(""); setRefundHolder(""); setDepositorName(""); setOrderDetailsSaved(false);
+    const supabase = createClient();
+    if (!supabase) return;
+    let active = true;
+    void supabase.from("customer_order_details").select("refund_bank,refund_account,refund_account_holder,depositor_name").eq("user_id", currentUserId).maybeSingle().then(({ data }) => {
+      if (!active || !data) return;
+      setRefundBank(data.refund_bank);
+      setRefundAccount(data.refund_account);
+      setRefundHolder(data.refund_account_holder);
+      setDepositorName(data.depositor_name);
+      setOrderDetailsSaved(true);
+    });
+    return () => { active = false; };
+  }, [currentUserId]);
+  useEffect(() => {
     let active = true;
     const supabase = createClient();
     if (!supabase) { setLoading(false); return; }
@@ -141,6 +159,32 @@ export default function Home() {
     if (!currentUserId || !analyticsConsent) return;
     const supabase = createClient();
     if (supabase) void supabase.from("analytics_events").insert({ user_id: currentUserId, event_name: eventName, ...details });
+  }
+  async function saveOrderDetails() {
+    if (!currentUserId) { notify("저장하려면 먼저 카카오 로그인을 해주세요"); return; }
+    if (!refundBank.trim() || !refundAccount.trim() || !refundHolder.trim() || !depositorName.trim()) { notify("환불 계좌와 입금자 정보를 모두 입력해 주세요"); return; }
+    const supabase = createClient();
+    if (!supabase) return;
+    setSavingOrderDetails(true);
+    const { error } = await supabase.from("customer_order_details").upsert({
+      user_id: currentUserId, refund_bank: refundBank.trim(), refund_account: refundAccount.trim(),
+      refund_account_holder: refundHolder.trim(), depositor_name: depositorName.trim(), updated_at: new Date().toISOString(),
+    });
+    setSavingOrderDetails(false);
+    if (error) { notify("정보를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."); return; }
+    setOrderDetailsSaved(true);
+    notify("주문 정보를 저장했어요. 다음 주문에 자동으로 입력됩니다.");
+  }
+  async function removeSavedOrderDetails() {
+    if (!currentUserId) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    setSavingOrderDetails(true);
+    const { error } = await supabase.from("customer_order_details").delete().eq("user_id", currentUserId);
+    setSavingOrderDetails(false);
+    if (error) { notify("저장된 정보를 삭제하지 못했어요. 다시 시도해 주세요."); return; }
+    setOrderDetailsSaved(false);
+    notify("저장된 주문 정보를 삭제했어요.");
   }
   function changeQuantity(id: string, amount: number) {
     if (amount > 0) {
@@ -248,6 +292,7 @@ export default function Home() {
       <div className="mobile-cart-items">{cartItems.map((product) => <div className="mobile-cart-item" key={product.id}><span className="cart-produce"><ProductImage image={product.image} fallback={product.image}/></span><div className="cart-item-copy"><b>{product.name}</b><small>{product.variety} · {won(product.price)}원</small></div><div className="mobile-quantity"><button onClick={() => changeQuantity(product.id, -1)} aria-label="수량 줄이기"><Minus size={15}/></button><span>{cart[product.id]}</span><button onClick={() => changeQuantity(product.id, 1)} aria-label="수량 늘리기"><Plus size={15}/></button></div></div>)}</div>
       <div className="refund-options"><h3>상품이 부족하면 어떻게 할까요?</h3><button className={refund === "partial" ? "refund-selected" : ""} onClick={() => setRefund("partial")}><span className="radio-mark"/><span><b>가능한 상품만 받을게요</b><small>부족한 수량만 환불돼요.</small></span></button><button className={refund === "all" ? "refund-selected" : ""} onClick={() => setRefund("all")}><span className="radio-mark"/><span><b>전체 환불받을게요</b><small>일부라도 준비되지 않으면 전체 환불돼요.</small></span></button></div>
       <div className="mobile-bank-form"><h3>입금 계좌 안내</h3>{paymentAccount ? <div className="checkout-transfer-account"><b>{paymentAccount.bank_name} {paymentAccount.account_number}</b><span>예금주 {paymentAccount.account_holder}</span><small>{paymentAccount.memo}</small></div> : <div className="checkout-transfer-account unavailable">입금 계좌가 아직 등록되지 않았어요. 관리자 설정 후 주문할 수 있어요.</div>}<h3>환불 계좌와 입금자 정보</h3><div className="bank-input-grid"><input placeholder="은행명" aria-label="환불 은행명" value={refundBank} onChange={(e) => setRefundBank(e.target.value)}/><input placeholder="계좌번호" aria-label="환불 계좌번호" value={refundAccount} onChange={(e) => setRefundAccount(e.target.value)}/><input placeholder="예금주" aria-label="예금주" value={refundHolder} onChange={(e) => setRefundHolder(e.target.value)}/><input placeholder="입금자명" aria-label="입금자명" value={depositorName} onChange={(e) => setDepositorName(e.target.value)}/></div><p>입금 후 관리자가 확인하면 주문 상태가 갱신됩니다. 픽업은 {soonestDate}이며, 주문은 픽업일 전날 오전 10시에 마감됩니다.</p></div>
+      <div className="saved-order-details"><span>{orderDetailsSaved ? "저장된 정보가 다음 주문에 자동으로 입력돼요." : "다음 주문에 다시 쓰려면 정보를 저장해 주세요."}</span><div><button type="button" disabled={savingOrderDetails} onClick={() => void saveOrderDetails()}>{savingOrderDetails ? "저장 중…" : orderDetailsSaved ? "정보 업데이트" : "정보 저장"}</button>{orderDetailsSaved && <button type="button" className="saved-details-delete" disabled={savingOrderDetails} onClick={() => void removeSavedOrderDetails()}>저장 정보 삭제</button>}</div></div>
       <div className="mobile-total"><span>결제 예정 금액</span><b>{won(total)}원</b></div><button className="place-order-button" disabled={submitting || !paymentAccount} onClick={() => void placeOrder()}>{submitting ? "예약 접수 중…" : !paymentAccount ? "입금 계좌 설정 대기" : "예약하고 입금 안내 받기"}<ArrowRight size={17}/></button>
     </section></div>}
   </main>;
