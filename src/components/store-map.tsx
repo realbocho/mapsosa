@@ -9,7 +9,6 @@ type LatLng = object;
 type KakaoMap = { panTo: (position: LatLng) => void; setBounds: (bounds: object) => void; setLevel: (level: number) => void };
 type KakaoMarker = object;
 type GeocodeResult = { x: string; y: string };
-type PlaceResult = { place_name: string; x: string; y: string; address_name: string; road_address_name: string };
 type KakaoApi = {
   maps: {
     load: (callback: () => void) => void;
@@ -19,26 +18,11 @@ type KakaoApi = {
     Marker: new (options: { map: KakaoMap; position: LatLng }) => KakaoMarker;
     services: {
       Geocoder: new () => { addressSearch: (address: string, callback: (results: GeocodeResult[], status: string) => void, options?: { analyze_type?: string }) => void };
-      Places: new () => { keywordSearch: (keyword: string, callback: (results: PlaceResult[], status: string) => void, options?: { size?: number }) => void };
       Status: { OK: string };
     };
     event: { addListener: (target: KakaoMarker, event: string, callback: () => void) => void };
   };
 };
-
-function normalizeLocation(value: string) {
-  return value.toLocaleLowerCase("ko-KR").replace(/[\s,.-]/g, "");
-}
-
-function matchesStorePlace(store: StoreLocation, place: PlaceResult) {
-  const storeName = normalizeLocation(store.name);
-  const placeName = normalizeLocation(place.place_name);
-  const storeAddress = normalizeLocation(store.address);
-  const placeAddress = normalizeLocation(place.road_address_name || place.address_name || "");
-  const nameMatches = placeName === storeName || placeName.includes(storeName) || storeName.includes(placeName);
-  const addressMatches = Boolean(placeAddress) && (storeAddress.includes(placeAddress) || placeAddress.includes(storeAddress));
-  return nameMatches && addressMatches;
-}
 
 declare global {
   interface Window { kakao?: KakaoApi }
@@ -84,7 +68,6 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
       });
       mapRef.current = map;
       const geocoder = new kakao.maps.services.Geocoder();
-      const places = new kakao.maps.services.Places();
       const bounds = new kakao.maps.LatLngBounds();
       let completed = 0;
       let located = 0;
@@ -113,20 +96,11 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
       }
 
       for (const store of stores) {
-        places.keywordSearch(`${store.name} ${store.address}`, (placeResults, placeStatus) => {
+        geocoder.addressSearch(store.address, (results, status) => {
           if (cancelled) return;
-          const exactPlace = placeStatus === kakao.maps.services.Status.OK
-            ? placeResults.find((place) => matchesStorePlace(store, place))
-            : undefined;
-          if (exactPlace) {
-            finishStore(store, exactPlace.x, exactPlace.y);
-            return;
-          }
-          geocoder.addressSearch(store.address, (results, status) => {
-            const result = status === kakao.maps.services.Status.OK ? results[0] : undefined;
-            finishStore(store, result?.x, result?.y);
-          }, { analyze_type: "EXACT" });
-        }, { size: 10 });
+          const result = status === kakao.maps.services.Status.OK ? results[0] : undefined;
+          finishStore(store, result?.x, result?.y);
+        });
       }
     }).catch(() => { if (!cancelled) setMapError("sdk"); });
 
@@ -152,7 +126,10 @@ export function StoreMap({ stores, apiKey, selectedStoreId }: { stores: StoreLoc
 
   function focusStore(store: StoreLocation) {
     const position = markerPositions.current.get(store.id);
-    if (position) mapRef.current?.panTo(position);
+    if (position) {
+      mapRef.current?.panTo(position);
+      mapRef.current?.setLevel(3);
+    }
     setSelectedStore(store);
   }
 
