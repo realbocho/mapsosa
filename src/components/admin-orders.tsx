@@ -14,7 +14,7 @@ type Transfer = { id: string; pickup_date: string | null; type: "deposit" | "sal
 type ProductTotal = { id: string; type: "slot" | "instant"; slotSize: number | null; name: string; specification: string; storeId: string; store: string; requested: number; paid: number; unpaid: number; confirmed: number; amount: number; amountReady: boolean; slotCalculated: boolean };
 
 const statusText: Record<string, string> = { awaiting_payment: "입금 대기", cancelled_unpaid: "미입금 취소", late_payment_refund: "늦은 입금 환불", paid_recruiting: "입금 확인 · 모집 중", slot_confirmed: "슬롯 확정", store_checking: "가게 물량 확인 중", partially_refunded: "부분 환불", refunded: "환불 완료", pickup_ready: "확정 · 확인서 발급", picked_up: "픽업 완료", auto_completed: "자동 완료" };
-const activeStatuses = new Set(["awaiting_payment", "paid_recruiting", "slot_confirmed", "store_checking", "pickup_ready", "partially_refunded"]);
+const activeStatuses = new Set(["awaiting_payment", "paid_recruiting", "slot_confirmed", "store_checking", "pickup_ready", "partially_refunded", "picked_up"]);
 
 function upcomingDates() {
   return (["수요일", "토요일"] as PickupDay[]).map((day) => ({ day, date: nextPickupDate(day) })).sort((a, b) => a.date.localeCompare(b.date));
