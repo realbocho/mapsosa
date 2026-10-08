@@ -21,6 +21,7 @@ export default function Home() {
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [refund, setRefund] = useState<"all" | "partial">("partial");
   const [refundBank, setRefundBank] = useState("");
   const [refundAccount, setRefundAccount] = useState("");
@@ -261,13 +262,17 @@ export default function Home() {
     if (error) notify("로그아웃하지 못했어요. 다시 시도해 주세요.");
   }
   async function placeOrder() {
-    if (!refundBank.trim() || !refundAccount.trim() || !refundHolder.trim() || !depositorName.trim()) { notify("환불 계좌와 입금자 정보를 입력해 주세요"); return; }
     const supabase = createClient();
     if (!supabase) { notify("Supabase 설정 후 주문할 수 있어요"); return; }
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) {
+      setAuthStatus("signed_out");
+      setShowLoginPrompt(true);
+      return;
+    }
+    if (!refundBank.trim() || !refundAccount.trim() || !refundHolder.trim() || !depositorName.trim()) { notify("환불 계좌와 입금자 정보를 입력해 주세요"); return; }
     setSubmitting(true);
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) { await signIn(); return; }
       const { data, error } = await supabase.rpc("create_order", {
         p_pickup_date: pickupDate,
         p_refund_preference: refund === "partial" ? "partial" : "all_or_nothing",
@@ -337,6 +342,8 @@ export default function Home() {
     {toast && <div className="mobile-toast"><Check size={16}/>{toast}</div>}
 
     {authStatus === "signed_in" && currentUserId && <AcquisitionSurvey userId={currentUserId}/>}
+
+    {showLoginPrompt && <div className="mobile-modal-backdrop login-required-backdrop" onClick={() => setShowLoginPrompt(false)}><section className="login-required-dialog" role="dialog" aria-modal="true" aria-labelledby="login-required-title" onClick={(event) => event.stopPropagation()}><button className="login-required-close" onClick={() => setShowLoginPrompt(false)} aria-label="닫기"><X size={19}/></button><span className="login-required-icon"><Sprout size={21}/></span><h2 id="login-required-title">로그인이 필요합니다</h2><p>주문하려면 카카오 계정으로 로그인해 주세요.</p><button className="kakao-start" onClick={() => void signIn()}>카카오로 로그인하기</button></section></div>}
 
     {checkout && <div className="mobile-modal-backdrop" onClick={() => setCheckout(false)}><section className="mobile-checkout" onClick={(event) => event.stopPropagation()}><div className="checkout-title"><div><span className="section-kicker">YOUR RESERVATION</span><h2>예약 목록</h2></div><button className="close-button" onClick={() => setCheckout(false)} aria-label="닫기"><X size={20}/></button></div>
       <div className="mobile-cart-items">{cartItems.map((product) => <div className="mobile-cart-item" key={product.id}><span className="cart-produce"><ProductImage image={product.image} fallback={product.image}/></span><div className="cart-item-copy"><b>{product.name}</b><small>{product.variety} · {won(product.price)}원</small></div><div className="mobile-quantity"><button onClick={() => changeQuantity(product.id, -1)} aria-label="수량 줄이기"><Minus size={15}/></button><span>{cart[product.id]}</span><button onClick={() => changeQuantity(product.id, 1)} aria-label="수량 늘리기"><Plus size={15}/></button></div></div>)}</div>
