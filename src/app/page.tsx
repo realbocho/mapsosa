@@ -1,16 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowRight, Check, Clock3, MapPin, Minus, Plus, ShoppingBag, Sprout, X } from "lucide-react";
+import { ArrowDown, ArrowRight, Check, Clock3, LocateFixed, MapPin, Minus, Plus, ShoppingBag, Sprout, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isProductImageUrl, won, type Product } from "@/lib/products";
-import { StoreMap, type StoreLocation } from "@/components/store-map";
+import { StoreMap, type StoreCoordinate, type StoreLocation } from "@/components/store-map";
 import { ProductImage } from "@/components/product-image";
 import { LegalLinks } from "@/components/legal-links";
 import { formatPickupDate, nextPickupDate, orderDeadlineTimestamp, type PickupDay } from "@/lib/pickup-dates";
 import { AcquisitionSurvey } from "@/components/acquisition-survey";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
+
+function distanceMeters(origin: { latitude: number; longitude: number }, destination: { latitude: number; longitude: number }) {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(destination.latitude - origin.latitude);
+  const longitudeDelta = radians(destination.longitude - origin.longitude);
+  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(origin.latitude)) * Math.cos(radians(destination.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(meters: number) {
+  return meters < 1000 ? `${Math.max(10, Math.round(meters / 10) * 10)}m` : `${(meters / 1000).toFixed(1)}km`;
+}
 
 export default function Home() {
   const pickupOptions = useMemo(() => (["수요일", "토요일"] as PickupDay[])
@@ -19,6 +31,11 @@ export default function Home() {
   const [pickup, setPickup] = useState<PickupDay>(() => pickupOptions[0].day);
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [stores, setStores] = useState<StoreLocation[]>([]);
+  const [storeCoordinates, setStoreCoordinates] = useState<StoreCoordinate[]>([]);
+  const [nearbySort, setNearbySort] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationMessage, setLocationMessage] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
@@ -204,8 +221,42 @@ export default function Home() {
     const pickupStoreIds = new Set(storeCatalog.map((store) => store.id));
     return stores.filter((store) => pickupStoreIds.has(store.id));
   }, [storeCatalog, stores]);
+  const coordinatesByStoreId = useMemo(() => new Map(storeCoordinates.map((coordinate) => [coordinate.id, coordinate])), [storeCoordinates]);
+  const visibleStoreCatalog = useMemo(() => {
+    if (!nearbySort || !userLocation) return storeCatalog;
+    return [...storeCatalog].sort((a, b) => {
+      const aCoordinate = coordinatesByStoreId.get(a.id);
+      const bCoordinate = coordinatesByStoreId.get(b.id);
+      const aDistance = aCoordinate ? distanceMeters(userLocation, aCoordinate) : Number.POSITIVE_INFINITY;
+      const bDistance = bCoordinate ? distanceMeters(userLocation, bCoordinate) : Number.POSITIVE_INFINITY;
+      return aDistance - bDistance || a.name.localeCompare(b.name, "ko");
+    });
+  }, [coordinatesByStoreId, nearbySort, storeCatalog, userLocation]);
   const [openStoreId, setOpenStoreId] = useState<string | null>(null);
   const selectedPickupStore = pickupStores.find((store) => store.id === openStoreId) ?? null;
+  function toggleNearbySort() {
+    if (nearbySort) {
+      setNearbySort(false);
+      setUserLocation(null);
+      setLocationMessage("");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setLocationMessage("이 브라우저에서는 현재 위치를 사용할 수 없어요.");
+      return;
+    }
+    setLocating(true);
+    setLocationMessage("현재 위치를 확인하고 있어요…");
+    navigator.geolocation.getCurrentPosition((position) => {
+      setUserLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+      setNearbySort(true);
+      setLocating(false);
+      setLocationMessage("표시 거리는 직선거리이며, 현재 위치는 이 기기에서만 계산해요.");
+    }, (error) => {
+      setLocating(false);
+      setLocationMessage(error.code === error.PERMISSION_DENIED ? "가까운 순 정렬을 하려면 위치 권한을 허용해 주세요." : "현재 위치를 가져오지 못했어요. 다시 시도해 주세요.");
+    }, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 12_000 });
+  }
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   function track(eventName: "store_detail_opened" | "add_to_cart" | "checkout_started", details: { store_id?: string; product_id?: string } = {}) {
     if (!currentUserId || !analyticsConsent) return;
@@ -320,17 +371,20 @@ export default function Home() {
       </section>
 
       <section className="mobile-market map-market">
-        <StoreMap variant="background" stores={pickupStores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId} onStoreSelect={setOpenStoreId}/>
+        <StoreMap variant="background" stores={pickupStores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId} onStoreSelect={setOpenStoreId} onLocationsResolved={setStoreCoordinates}/>
         <div className="store-bottom-sheet">
           <div className="store-sheet-handle" aria-hidden="true"><span/></div>
           <div className="mobile-section-heading"><div><span className="section-kicker">{pickup.toUpperCase()}</span><h2>{pickup} 가게</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate}</span></div>
+          <div className="store-list-tools"><button type="button" className={`store-sort-button${nearbySort ? " selected" : ""}`} onClick={toggleNearbySort} disabled={locating} aria-pressed={nearbySort}><LocateFixed size={14}/>{locating ? "현재 위치 확인 중…" : nearbySort ? "가까운 순 · 가게명순으로 변경" : "내 위치에서 가까운 순"}</button>{locationMessage && <p role="status">{locationMessage}</p>}</div>
           {selectedPickupStore && <div className="store-map-selected sheet-selected-store"><div><b>{selectedPickupStore.name}</b><span>{selectedPickupStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedPickupStore.address)}`} target="_blank" rel="noreferrer">길찾기 <ArrowRight size={14}/></a></div>}
-          {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : storeCatalog.length ? <div className="pickup-store-list">{storeCatalog.map((store) => {
+          {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : visibleStoreCatalog.length ? <div className="pickup-store-list">{visibleStoreCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
           const preview = store.products.slice(0, 3);
+          const storeCoordinate = coordinatesByStoreId.get(store.id);
+          const distance = nearbySort && userLocation && storeCoordinate ? formatDistance(distanceMeters(userLocation, storeCoordinate)) : null;
           return <article className={`pickup-store-card${isOpen ? " is-open" : ""}`} key={store.id}>
             <button className="pickup-store-summary" aria-expanded={isOpen} onClick={() => { if (!isOpen) track("store_detail_opened", { store_id: store.id }); setOpenStoreId(isOpen ? null : store.id); }}>
-              <span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area} · 과일 {store.products.length}종</small></span><span className="pickup-store-chevron">{isOpen ? "접기" : "자세히"}<ArrowRight size={15}/></span></span>
+              <span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><span className="pickup-store-chevron">{isOpen ? "접기" : "자세히"}<ArrowRight size={15}/></span></span>
               <span className="fruit-preview">{preview.map((product) => <span className="fruit-preview-item" key={product.id}><span className="fruit-preview-image"><ProductImage image={product.image} fallback={product.image}/></span><span className="fruit-preview-copy"><b>{product.name}</b><small>{won(product.price)}원</small></span></span>)}{store.products.length > preview.length && <span className="fruit-preview-more">+{store.products.length - preview.length}</span>}</span>
               <span className="pickup-store-hint">과일을 눌러 상품과 예약 정보를 확인하세요</span>
             </button>

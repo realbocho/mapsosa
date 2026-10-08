@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, MapPin } from "lucide-react";
 
 export type StoreLocation = { id: string; name: string; area: string; address: string };
+export type StoreCoordinate = { id: string; latitude: number; longitude: number };
 
 type LatLng = object;
 type KakaoMap = { setBounds: (bounds: object) => void; jump: (position: LatLng, level: number, options?: { animate?: boolean }) => void };
@@ -48,7 +49,7 @@ function loadKakaoMap(key: string): Promise<KakaoApi> {
   return kakaoMapScript;
 }
 
-export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default", onStoreSelect }: { stores: StoreLocation[]; apiKey?: string; selectedStoreId?: string | null; variant?: "default" | "background"; onStoreSelect?: (storeId: string) => void }) {
+export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default", onStoreSelect, onLocationsResolved }: { stores: StoreLocation[]; apiKey?: string; selectedStoreId?: string | null; variant?: "default" | "background"; onStoreSelect?: (storeId: string) => void; onLocationsResolved?: (locations: StoreCoordinate[]) => void }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<KakaoMap | null>(null);
   const markersReady = useRef(false);
@@ -60,9 +61,13 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
   const [markersVersion, setMarkersVersion] = useState(0);
 
   useEffect(() => {
-    if (!apiKey || !mapElement.current || stores.length === 0) return;
+    if (!apiKey || !mapElement.current || stores.length === 0) {
+      onLocationsResolved?.([]);
+      return;
+    }
     markersReady.current = false;
     let cancelled = false;
+    const locatedStores: StoreCoordinate[] = [];
     void loadKakaoMap(apiKey).then((kakao) => {
       if (cancelled || !mapElement.current) return;
       const map = new kakao.maps.Map(mapElement.current, {
@@ -82,6 +87,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
           const position = new kakao.maps.LatLng(Number(y), Number(x));
           const marker = new kakao.maps.Marker({ map, position });
           markerPositions.current.set(store.id, position);
+          locatedStores.push({ id: store.id, latitude: Number(y), longitude: Number(x) });
           bounds.extend(position);
           located += 1;
           kakao.maps.event.addListener(marker, "click", () => {
@@ -92,6 +98,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
         }
         completed += 1;
         if (completed === stores.length && located > 0) {
+          onLocationsResolved?.(locatedStores);
           boundsFitPending = true;
           kakao.maps.event.addListener(map, "idle", () => {
             if (!boundsFitPending || cancelled) return;
@@ -110,6 +117,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
           }, 700);
         }
         if (completed === stores.length && located === 0) {
+          onLocationsResolved?.([]);
           setMapError("address");
           markersReady.current = true;
           setMarkersVersion((version) => version + 1);
@@ -123,7 +131,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
           finishStore(store, result?.x, result?.y);
         });
       }
-    }).catch(() => { if (!cancelled) setMapError("sdk"); });
+    }).catch(() => { if (!cancelled) { onLocationsResolved?.([]); setMapError("sdk"); } });
 
     return () => {
       cancelled = true;
@@ -133,7 +141,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
       mapRef.current = null;
       markerPositions.current.clear();
     };
-  }, [apiKey, onStoreSelect, stores]);
+  }, [apiKey, onLocationsResolved, onStoreSelect, stores]);
 
   useEffect(() => {
     if (!selectedStoreId) {
