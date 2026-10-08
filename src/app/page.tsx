@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowDown, ArrowRight, Check, Clock3, LocateFixed, MapPin, Minus, Plus, ShoppingBag, Sprout, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isProductImageUrl, won, type Product } from "@/lib/products";
@@ -36,6 +36,8 @@ export default function Home() {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
+  const [sheetHeightPercent, setSheetHeightPercent] = useState<number | null>(null);
+  const sheetDrag = useRef<{ pointerId: number; startY: number; startHeight: number; containerHeight: number } | null>(null);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkout, setCheckout] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
@@ -257,6 +259,40 @@ export default function Home() {
       setLocationMessage(error.code === error.PERMISSION_DENIED ? "가까운 순 정렬을 하려면 위치 권한을 허용해 주세요." : "현재 위치를 가져오지 못했어요. 다시 시도해 주세요.");
     }, { enableHighAccuracy: false, maximumAge: 60_000, timeout: 12_000 });
   }
+  function startSheetDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const market = event.currentTarget.closest(".map-market");
+    const sheet = event.currentTarget.closest(".store-bottom-sheet");
+    const containerHeight = market?.getBoundingClientRect().height ?? 0;
+    if (!sheet || !containerHeight) return;
+    const startHeight = sheet.getBoundingClientRect().height / containerHeight * 100;
+    sheetDrag.current = { pointerId: event.pointerId, startY: event.clientY, startHeight, containerHeight };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function moveSheetDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = sheetDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const height = drag.startHeight + (drag.startY - event.clientY) / drag.containerHeight * 100;
+    setSheetHeightPercent(Math.max(48, Math.min(88, height)));
+  }
+  function finishSheetDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = sheetDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const height = Math.max(48, Math.min(88, drag.startHeight + (drag.startY - event.clientY) / drag.containerHeight * 100));
+    const snapPoints = [48, 66, 88];
+    setSheetHeightPercent(snapPoints.reduce((closest, point) => Math.abs(point - height) < Math.abs(closest - height) ? point : closest, snapPoints[0]));
+    sheetDrag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+  function handleSheetKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = sheetHeightPercent ?? 66;
+    const snapPoints = [48, 66, 88];
+    if (event.key === "Home") setSheetHeightPercent(88);
+    else if (event.key === "End") setSheetHeightPercent(48);
+    else if (event.key === "ArrowUp") setSheetHeightPercent(snapPoints.find((point) => point > current) ?? 88);
+    else setSheetHeightPercent([...snapPoints].reverse().find((point) => point < current) ?? 48);
+  }
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
   function track(eventName: "store_detail_opened" | "add_to_cart" | "checkout_started", details: { store_id?: string; product_id?: string } = {}) {
     if (!currentUserId || !analyticsConsent) return;
@@ -370,10 +406,10 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mobile-market map-market">
+      <section className="mobile-market map-market" style={sheetHeightPercent === null ? undefined : { "--sheet-height": `${sheetHeightPercent}%` } as CSSProperties}>
         <StoreMap variant="background" stores={pickupStores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId} onStoreSelect={setOpenStoreId} onLocationsResolved={setStoreCoordinates}/>
         <div className="store-bottom-sheet">
-          <div className="store-sheet-handle" aria-hidden="true"><span/></div>
+          <button type="button" className="store-sheet-handle" role="slider" aria-label="가게 목록 창 크기 조절" aria-orientation="vertical" aria-valuemin={48} aria-valuemax={88} aria-valuenow={Math.round(sheetHeightPercent ?? 66)} aria-valuetext={(sheetHeightPercent ?? 66) >= 80 ? "확장" : (sheetHeightPercent ?? 66) <= 52 ? "접힘" : "기본"} onPointerDown={startSheetDrag} onPointerMove={moveSheetDrag} onPointerUp={finishSheetDrag} onPointerCancel={finishSheetDrag} onKeyDown={handleSheetKeyDown}><span/></button>
           <div className="mobile-section-heading"><div><span className="section-kicker">{pickup.toUpperCase()}</span><h2>{pickup} 가게</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate}</span></div>
           <div className="store-list-tools"><button type="button" className={`store-sort-button${nearbySort ? " selected" : ""}`} onClick={toggleNearbySort} disabled={locating} aria-pressed={nearbySort}><LocateFixed size={14}/>{locating ? "현재 위치 확인 중…" : nearbySort ? "가까운 순 · 가게명순으로 변경" : "내 위치에서 가까운 순"}</button>{locationMessage && <p role="status">{locationMessage}</p>}</div>
           {selectedPickupStore && <div className="store-map-selected sheet-selected-store"><div><b>{selectedPickupStore.name}</b><span>{selectedPickupStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedPickupStore.address)}`} target="_blank" rel="noreferrer">길찾기 <ArrowRight size={14}/></a></div>}

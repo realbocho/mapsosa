@@ -7,7 +7,7 @@ export type StoreLocation = { id: string; name: string; area: string; address: s
 export type StoreCoordinate = { id: string; latitude: number; longitude: number };
 
 type LatLng = object;
-type KakaoMap = { setBounds: (bounds: object) => void; jump: (position: LatLng, level: number, options?: { animate?: boolean }) => void };
+type KakaoMap = { setBounds: (bounds: object) => void; jump: (position: LatLng, level: number, options?: { animate?: boolean }) => void; relayout: () => void };
 type KakaoMarker = object;
 type GeocodeResult = { x: string; y: string };
 type KakaoApi = {
@@ -67,6 +67,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
     }
     markersReady.current = false;
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
     const locatedStores: StoreCoordinate[] = [];
     void loadKakaoMap(apiKey).then((kakao) => {
       if (cancelled || !mapElement.current) return;
@@ -74,6 +75,8 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
         center: new kakao.maps.LatLng(37.5665, 126.978),
         level: 7,
       });
+      resizeObserver = new ResizeObserver(() => map.relayout());
+      resizeObserver.observe(mapElement.current);
       mapRef.current = map;
       const geocoder = new kakao.maps.services.Geocoder();
       const bounds = new kakao.maps.LatLngBounds();
@@ -135,6 +138,7 @@ export function StoreMap({ stores, apiKey, selectedStoreId, variant = "default",
 
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
       markersReady.current = false;
       if (boundsFitFallback.current !== undefined) window.clearTimeout(boundsFitFallback.current);
       boundsFitFallback.current = undefined;
