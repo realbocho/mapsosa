@@ -7,7 +7,7 @@ import { isProductImageUrl, won, type Product } from "@/lib/products";
 import { StoreMap, type StoreLocation } from "@/components/store-map";
 import { ProductImage } from "@/components/product-image";
 import { LegalLinks } from "@/components/legal-links";
-import { formatPickupDate, nextPickupDate, type PickupDay } from "@/lib/pickup-dates";
+import { formatPickupDate, nextPickupDate, orderDeadlineTimestamp, type PickupDay } from "@/lib/pickup-dates";
 import { AcquisitionSurvey } from "@/components/acquisition-survey";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 
@@ -28,12 +28,23 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
   const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
   const pickupDate = pickupOptions.find((option) => option.day === pickup)?.date ?? nextPickupDate(pickup);
   const soonestDate = formatPickupDate(pickupDate);
+  const deadlineRemaining = currentTime ? orderDeadlineTimestamp(pickupDate) - currentTime : null;
+  const deadlineCountdown = deadlineRemaining === null ? "시간 확인 중…" : deadlineRemaining <= 0 ? "마감됐어요" : (() => {
+    const totalSeconds = Math.floor(deadlineRemaining / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const clock = [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+    return days ? `${days}일 ${clock}` : clock;
+  })();
 
   useEffect(() => {
     try {
@@ -42,6 +53,11 @@ export default function Home() {
     } catch { window.localStorage.removeItem("mapsosa-cart-v1"); }
   }, []);
   useEffect(() => { window.localStorage.setItem("mapsosa-cart-v1", JSON.stringify(cart)); }, [cart]);
+  useEffect(() => {
+    setCurrentTime(Date.now());
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     const error = new URLSearchParams(window.location.search).get("auth_error");
     if (!error) return;
@@ -188,6 +204,9 @@ export default function Home() {
       <section className="pickup-panel" aria-label="픽업일 선택">
         <div><b>어느 날 픽업할까요?</b><span>픽업 날짜를 선택해 주세요</span></div>
         <div className="day-picker">{pickupOptions.map(({ day, date }) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => { setPickup(day); setOpenStoreId(null); }}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
+        <div className={`pickup-deadline-countdown${deadlineRemaining !== null && deadlineRemaining <= 0 ? " is-closed" : ""}`} role="timer" aria-label={deadlineRemaining !== null && deadlineRemaining <= 0 ? "선택한 픽업일 주문이 마감되었습니다" : `주문 마감까지 ${deadlineCountdown}`}>
+          <span>{deadlineRemaining !== null && deadlineRemaining <= 0 ? "선택한 픽업일 주문" : "주문 마감까지"}</span><b>{deadlineCountdown}</b><small>픽업 전날 오전 10시 마감</small>
+        </div>
       </section>
 
       <section className="mobile-market">

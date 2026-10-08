@@ -29,6 +29,12 @@ export function formatPickupDate(date: string) {
   return `${month}월 ${day}일 (${weekday})`;
 }
 
+export function orderDeadlineTimestamp(pickupDate: string) {
+  const [year, month, day] = pickupDate.split("-").map(Number);
+  // Orders close at 10:00 KST on the day before pickup (01:00 UTC).
+  return Date.UTC(year, month - 1, day - 1, 1);
+}
+
 function seoulTimestamp(date: string, hour: number) {
   const [year, month, day] = date.split("-").map(Number);
   return Date.UTC(year, month - 1, day, hour - 9);
