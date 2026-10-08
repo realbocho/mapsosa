@@ -6,11 +6,12 @@ import { createClient } from "@/lib/supabase/client";
 import { formatPickupDate } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
 import { LegalLinks } from "@/components/legal-links";
+import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
 
 type OrderItem = { id: string; quantity: number; confirmed_quantity: number | null; refund_quantity: number; unit_price: number; products: { name: string; specification: string; stores: { name: string; address: string } | null } | null };
 type PickupPass = { token: string; issued_at: string; item_snapshot: { name: string; specification: string; quantity: number }[]; completed_at: string | null };
 type Refund = { id: string; reason: string; amount: number; message: string; transferred_at: string | null };
-type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; cancel_reason: string | null; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: OrderItem[]; pickup_passes: PickupPass[] | PickupPass | null; refunds: Refund[] };
+type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; updated_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; cancel_reason: string | null; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: OrderItem[]; pickup_passes: PickupPass[] | PickupPass | null; refunds: Refund[] };
 
 const statusText: Record<string, string> = {
   awaiting_payment: "입금 대기", cancelled_unpaid: "취소됨", late_payment_refund: "늦은 입금 확인 중", paid_recruiting: "결제 완료 · 모집 중",
@@ -32,8 +33,12 @@ export default function OrdersPage() {
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) { setSignedIn(false); setLoading(false); return; }
     setSignedIn(true);
-    const { data, error } = await supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,created_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,cancel_reason,cancellation_requested_at,profiles(nickname),order_items(id,quantity,confirmed_quantity,refund_quantity,unit_price,products(name,specification,stores(name,address))),pickup_passes(token,issued_at,item_snapshot,completed_at),refunds(id,reason,amount,message,transferred_at)").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,created_at,updated_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,cancel_reason,cancellation_requested_at,profiles(nickname),order_items(id,quantity,confirmed_quantity,refund_quantity,unit_price,products(name,specification,stores(name,address))),pickup_passes(token,issued_at,item_snapshot,completed_at),refunds(id,reason,amount,message,transferred_at)").order("created_at", { ascending: false });
     if (error) setNotice(`주문 내역을 불러오지 못했어요: ${error.message}`);
+    else if (data) {
+      const newest = newestOrderUpdate(data as { updated_at?: string | null }[]);
+      if (newest) window.localStorage.setItem(orderUpdatesSeenKey(auth.user.id), newest);
+    }
     setOrders((data ?? []) as unknown as Order[]);
     setLoading(false);
   }, []);

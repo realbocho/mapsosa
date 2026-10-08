@@ -154,7 +154,7 @@ export function AdminOrders() {
   async function updateOrder(order: Order, values: Record<string, unknown>) {
     const supabase = createClient();
     if (!supabase) return false;
-    const { error } = await supabase.from("orders").update(values).eq("id", order.id);
+    const { error } = await supabase.from("orders").update({ ...values, updated_at: new Date().toISOString() }).eq("id", order.id);
     if (error) { setNotice(error.message); return false; }
     await load();
     return true;
@@ -203,8 +203,8 @@ export function AdminOrders() {
     if (!supabase) return;
     const { error } = await supabase.from("refunds").update({ transferred_at: new Date().toISOString() }).eq("id", refund.id);
     if (error) { setNotice(error.message); return; }
+    if (!await updateOrder(order, {})) return;
     setNotice(`${order.order_number} 환불 이체 기록을 저장했어요.`);
-    await load();
   }
 
   async function finalizeOrder(order: Order) {
@@ -325,7 +325,8 @@ export function AdminOrders() {
       const itemResults = await Promise.all(itemUpdates);
       const itemFailure = itemResults.find((result) => result.error);
       if (itemFailure?.error) { setNotice(itemFailure.error.message); return; }
-      const updates = await Promise.all(eligible.filter((order) => order.status === "paid_recruiting").map((order) => supabase.from("orders").update({ status: "slot_confirmed" }).eq("id", order.id)));
+      const slotUpdatedAt = new Date().toISOString();
+      const updates = await Promise.all(eligible.map((order) => supabase.from("orders").update({ ...(order.status === "paid_recruiting" ? { status: "slot_confirmed" } : {}), updated_at: slotUpdatedAt }).eq("id", order.id)));
       const failed = updates.find((result) => result.error);
       if (failed?.error) { setNotice(failed.error.message); return; }
     }

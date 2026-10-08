@@ -10,6 +10,7 @@ import { LegalLinks } from "@/components/legal-links";
 import { formatPickupDate, nextPickupDate, orderDeadlineTimestamp, type PickupDay } from "@/lib/pickup-dates";
 import { AcquisitionSurvey } from "@/components/acquisition-survey";
 import { AnalyticsConsent } from "@/components/analytics-consent";
+import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
 
 export default function Home() {
   const pickupOptions = useMemo(() => (["수요일", "토요일"] as PickupDay[])
@@ -33,6 +34,7 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState(0);
   const [authStatus, setAuthStatus] = useState<"checking" | "signed_in" | "signed_out">("checking");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [hasOrderUpdates, setHasOrderUpdates] = useState(false);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
   const pickupDate = pickupOptions.find((option) => option.day === pickup)?.date ?? nextPickupDate(pickup);
@@ -94,6 +96,42 @@ export default function Home() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { void syncUser(session?.user?.id ?? null); });
     return () => { active = false; subscription.unsubscribe(); };
   }, []);
+  useEffect(() => {
+    if (!currentUserId) { setHasOrderUpdates(false); return; }
+    const supabase = createClient();
+    if (!supabase) return;
+    const storageKey = orderUpdatesSeenKey(currentUserId);
+    let active = true;
+    let checking = false;
+    async function checkForOrderUpdates() {
+      if (checking || document.visibilityState === "hidden") return;
+      checking = true;
+      const { data } = await supabase!.from("orders").select("updated_at").eq("user_id", currentUserId).order("updated_at", { ascending: false }).limit(1);
+      if (active) {
+        const newest = newestOrderUpdate(data ?? []);
+        const lastSeen = window.localStorage.getItem(storageKey);
+        if (!lastSeen) {
+          window.localStorage.setItem(storageKey, newest || "0");
+          setHasOrderUpdates(false);
+        } else setHasOrderUpdates(Boolean(newest && newest > lastSeen));
+      }
+      checking = false;
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) void checkForOrderUpdates();
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible") void checkForOrderUpdates(); };
+    void checkForOrderUpdates();
+    const timer = window.setInterval(() => void checkForOrderUpdates(), 15000);
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [currentUserId]);
   useEffect(() => {
     if (!currentUserId) { setRefundBank(""); setRefundAccount(""); setRefundHolder(""); setDepositorName(""); setOrderDetailsSaved(false); return; }
     setRefundBank(""); setRefundAccount(""); setRefundHolder(""); setDepositorName(""); setOrderDetailsSaved(false);
@@ -235,7 +273,7 @@ export default function Home() {
   return <main className="mobile-app">
     <header className="mobile-header">
       <a className="mobile-brand" href="/" aria-label="맵소사 홈"><span className="mobile-brand-mark"><Sprout size={18}/></span>맵소사</a>
-      <div className="mobile-header-actions"><a className="admin-link" href="/orders">내 주문</a><a className="admin-link" href="/admin">관리자</a><button className="header-cart" onClick={() => { track("checkout_started"); setCheckout(true); }} aria-label={`장바구니 ${count}개`}><ShoppingBag size={19}/>{count > 0 && <span>{count}</span>}</button></div>
+      <div className="mobile-header-actions"><a className={`admin-link${hasOrderUpdates ? " has-updates" : ""}`} href="/orders" aria-label={hasOrderUpdates ? "내 주문, 새 변경사항 있음" : "내 주문"}>내 주문</a><a className="admin-link" href="/admin">관리자</a><button className="header-cart" onClick={() => { track("checkout_started"); setCheckout(true); }} aria-label={`장바구니 ${count}개`}><ShoppingBag size={19}/>{count > 0 && <span>{count}</span>}</button></div>
     </header>
 
     <div className="mobile-content">
