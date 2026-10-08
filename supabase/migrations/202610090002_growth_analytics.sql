@@ -1,4 +1,6 @@
 -- Optional, first-party growth analytics. No anonymous identifiers or event metadata.
+create extension if not exists pg_cron;
+
 alter table public.profiles
   add column if not exists analytics_consent boolean not null default false,
   add column if not exists analytics_consent_updated_at timestamptz;
