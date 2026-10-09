@@ -9,7 +9,7 @@ import { LegalLinks } from "@/components/legal-links";
 import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
 
 type OrderItem = { id: string; quantity: number; confirmed_quantity: number | null; refund_quantity: number; unit_price: number; products: { name: string; specification: string; stores: { name: string; address: string } | null } | null };
-type PickupPass = { token: string; issued_at: string; item_snapshot: { name: string; specification: string; quantity: number }[]; completed_at: string | null };
+type PickupPass = { token: string; issued_at: string; item_snapshot: { name: string; specification: string; quantity: number; confirmation_note?: string }[]; completed_at: string | null };
 type Refund = { id: string; reason: string; amount: number; message: string; transferred_at: string | null };
 type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; updated_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; cancel_reason: string | null; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: OrderItem[]; pickup_passes: PickupPass[] | PickupPass | null; refunds: Refund[] };
 
@@ -86,6 +86,7 @@ export default function OrdersPage() {
         const cancellationClosed = currentTime >= orderDeadlineTimestamp(order.pickup_date);
         const fullyRefunded = ["refunded", "late_payment_refund"].includes(order.status) && hasCompletedRefund;
         const visibleStatus = pendingRefund && ["partially_refunded", "refunded", "late_payment_refund"].includes(order.status) ? "최종 내역 처리 중" : order.status === "refunded" && completedRefunds.length > 0 ? "환불 완료" : completedRefunds.length > 0 && pass ? "확정 · 환불 완료" : statusText[order.status] ?? order.status;
+        const confirmationNote = pass?.item_snapshot.find((item) => item.confirmation_note)?.confirmation_note ?? (!pass ? completedRefunds.find((refund) => refund.message)?.message : undefined);
         const pickupStores = [...new Map(order.order_items.flatMap((item) => {
           const store = item.products?.stores;
           return store?.name ? [[`${store.name}-${store.address}`, store] as const] : [];
@@ -93,6 +94,7 @@ export default function OrdersPage() {
         return <article className="order-card" key={order.id}>
           <div className="order-card-top"><div><span className="order-date">픽업 {formatPickupDate(order.pickup_date)}</span><b>{order.order_number}</b></div><span className={`order-status ${pass ? "ready" : ""}`}>{visibleStatus}</span></div>
           {pickupStores.length > 0 && <div className="order-pickup-stores"><b>픽업 가게</b>{pickupStores.map((store) => <div key={`${store.name}-${store.address}`}><strong>{store.name}</strong><span>{store.address || "가게 주소가 등록되지 않았어요."}</span></div>)}</div>}
+          {confirmationNote && <div className="order-confirmation-note"><b>주문서 비고</b><span>{confirmationNote}</span></div>}
           <div className="order-items">{order.order_items.map((item) => {
             const confirmed = item.confirmed_quantity ?? (fullyRefunded ? 0 : item.quantity);
             const refunded = item.refund_quantity || (fullyRefunded ? item.quantity : 0);
@@ -123,6 +125,7 @@ export default function OrdersPage() {
       }) : activePass.pass.item_snapshot.map((item, index) => ({ id: `${item.name}-${index}`, name: item.name, specification: item.specification, confirmed: item.quantity, refunded: 0 }))).map((item) => <div className={item.refunded > 0 && item.confirmed === 0 ? "refunded-order-line" : ""} key={item.id}><span>{item.refunded > 0 && item.confirmed === 0 ? <s>{item.name}</s> : item.name} · {item.specification}{item.refunded > 0 && <small><s>{item.refunded}개 환불</s></small>}</span><b>{item.confirmed}개 확정</b></div>)}</div>
       {activePass.order.refunds.some((refund) => refund.transferred_at) && <div className="ticket-items"><div><span>환불 완료</span><b>{won(activePass.order.refunds.filter((refund) => refund.transferred_at).reduce((sum, refund) => sum + refund.amount, 0))}원</b></div><div><span>환불 계좌</span><b>{activePass.order.refund_bank} {activePass.order.refund_account}</b></div><div><span>최종 결제 금액</span><b>{won(Math.max(0, activePass.order.total - activePass.order.refunds.filter((refund) => refund.transferred_at).reduce((sum, refund) => sum + refund.amount, 0)))}원</b></div></div>}
       <div className="ticket-store-list">{[...new Map(activePass.order.order_items.map((item) => [item.products?.stores?.name, item.products?.stores?.address])).entries()].filter(([name]) => name).map(([name, address]) => <div key={name}><b>{name}</b><span>{address}</span></div>)}</div>
+      {activePass.pass.item_snapshot.find((item) => item.confirmation_note)?.confirmation_note && <div className="ticket-confirmation-note"><b>주문서 비고</b><span>{activePass.pass.item_snapshot.find((item) => item.confirmation_note)?.confirmation_note}</span></div>}
       <p className="ticket-policy">당일 수령하지 않은 상품은 폐기되며 환불되지 않습니다.</p><button className="ticket-print" onClick={() => window.print()}><Printer size={15}/>주문확인서 인쇄</button>
       {activePass.order.status === "pickup_ready" && <button className="pickup-done-button ticket-done" onClick={() => void completePickup(activePass.order)}><Check size={15}/>픽업 완료 처리</button>}
     </section></div>}
