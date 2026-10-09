@@ -238,9 +238,9 @@ export function AdminOrders() {
         const { error: savePassError } = await supabase.from("pickup_passes").update({ item_snapshot: snapshot.map((item) => ({ ...item, confirmation_note: confirmationNote })) }).eq("order_id", order.id);
         if (savePassError) noteSaveError = savePassError.message;
       }
-      const { error: saveRefundError } = await supabase.from("refunds").update({ message: confirmationNote }).eq("order_id", order.id);
-      if (saveRefundError) noteSaveError = saveRefundError.message;
     }
+    const { error: saveRefundError } = await supabase.from("refunds").update({ message: confirmationNote ?? "" }).eq("order_id", order.id);
+    if (saveRefundError) noteSaveError = saveRefundError.message;
     const result = Array.isArray(data) ? data[0] : data;
     setNotice(noteSaveError ? `주문은 확정했지만 비고를 저장하지 못했어요: ${noteSaveError}` : confirmationNote ? "주문서 비고를 포함해 확정 처리를 완료했어요." : result?.final_status === "pickup_ready" ? "확정 주문확인서를 발급했어요. 고객의 내 주문 화면에서 확인할 수 있습니다." : "확보 가능한 수량이 없어 전액 환불 처리 대상으로 등록했어요.");
     await load();
