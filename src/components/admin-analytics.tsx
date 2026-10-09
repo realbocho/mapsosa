@@ -11,18 +11,20 @@ const day = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString(
 
 export function AdminAnalytics() {
   const [weeks, setWeeks] = useState<Week[]>([]); const [retention, setRetention] = useState<Retention[]>([]); const [supply, setSupply] = useState<Supply[]>([]);
+  const [signupCount, setSignupCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [campaign, setCampaign] = useState(""); const [spend, setSpend] = useState(""); const [saving, setSaving] = useState(false);
   const load = useCallback(async () => {
     const supabase = createClient(); if (!supabase) { setError("Supabase 설정이 필요합니다."); setLoading(false); return; }
     setLoading(true); setError("");
-    const [w, r, s] = await Promise.all([
+    const [w, r, s, signups] = await Promise.all([
       supabase.rpc("operator_weekly_growth_metrics", { p_weeks: 16 }),
       supabase.rpc("operator_retention_cohorts", { p_cohorts: 8 }),
       supabase.rpc("operator_supply_metrics", { p_pickup_count: 8 }),
+      supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "customer").neq("id", "f022cd30-1a39-457b-adaf-48f3c109965d"),
     ]);
-    const failure = w.error ?? r.error ?? s.error;
+    const failure = w.error ?? r.error ?? s.error ?? signups.error;
     if (failure) setError(`분석 자료를 불러오지 못했어요. 마이그레이션 적용 여부를 확인해 주세요. (${failure.message})`);
-    setWeeks((w.data ?? []) as Week[]); setRetention((r.data ?? []) as Retention[]); setSupply((s.data ?? []) as Supply[]); setLoading(false);
+    setWeeks((w.data ?? []) as Week[]); setRetention((r.data ?? []) as Retention[]); setSupply((s.data ?? []) as Supply[]); setSignupCount(signups.error ? null : signups.count ?? 0); setLoading(false);
   }, []);
   useEffect(() => { void load(); }, [load]);
   async function addSpend(event: React.FormEvent) {
@@ -51,6 +53,7 @@ export function AdminAnalytics() {
     {error && <p className="analytics-error">{error}</p>}{loading && <div className="admin-empty">분석 자료를 불러오고 있어요…</div>}
     {!loading && <>
       <section className="admin-card analytics-card"><h3>핵심 지표 · 최근 완료 주</h3><div className="analytics-kpis">
+        <article><small>카카오 로그인 가입자</small><b>{signupCount === null ? "데이터 없음" : `${signupCount}명`}</b><span>관리자 계정 제외 · 누적</span></article>
         <article><small>입금 확인 고객</small><b>{last?.paid_customers ?? 0}명</b><span>{last ? `${day(last.week_start)} 주` : "데이터 부족"}</span></article>
         <article><small>주간 성장률 · 목표 7%</small><b>{growth === null ? "데이터 부족" : `${growth >= 0 ? "+" : ""}${(growth * 100).toFixed(1)}%`}</b><span>전주 대비</span></article>
         <article><small>신규 / 재구매</small><b>{last?.new_customers ?? 0} / {last?.repeat_customers ?? 0}명</b><span>입금 확인 고객</span></article>
