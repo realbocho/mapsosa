@@ -8,7 +8,7 @@ import { won } from "@/lib/products";
 
 type Line = { id: string; quantity: number; proposed_quantity: number | null; confirmed_quantity: number | null; refund_quantity: number; refund_reason: string | null; unit_price: number; products: { id: string; name: string; specification: string; type: "slot" | "instant"; slot_size: number | null; stores: { id: string; name: string } | null } | null };
 type Refund = { id: string; reason: string; amount: number; message: string; transferred_at: string | null };
-type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; inventory_reviewed_at: string | null; created_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; refund_preference: "all_or_nothing" | "partial"; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: Line[]; refunds: Refund[] };
+type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; inventory_reviewed_at: string | null; confirmation_note: string; created_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; refund_preference: "all_or_nothing" | "partial"; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: Line[]; refunds: Refund[] };
 type StoreOption = { id: string; name: string };
 type Transfer = { id: string; pickup_date: string | null; type: "deposit" | "sales" | "recovery"; amount: number; transferred_at: string | null; memo: string; stores: { name: string } | null };
 type ProductTotal = { id: string; type: "slot" | "instant"; slotSize: number | null; name: string; specification: string; storeId: string; store: string; requested: number; paid: number; unpaid: number; confirmed: number; amount: number; amountReady: boolean; slotCalculated: boolean };
@@ -139,7 +139,7 @@ export function AdminOrders() {
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
     const [ordersResult, storesResult, transfersResult, inventoryResult] = await Promise.all([
-      supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,inventory_reviewed_at,created_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,refund_preference,cancellation_requested_at,profiles(nickname),order_items(id,quantity,proposed_quantity,confirmed_quantity,refund_quantity,refund_reason,unit_price,products(id,name,specification,type,slot_size,stores(id,name))),refunds(id,reason,amount,message,transferred_at)").eq("pickup_date", pickupDate).order("created_at", { ascending: true }),
+      supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,inventory_reviewed_at,confirmation_note,created_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,refund_preference,cancellation_requested_at,profiles(nickname),order_items(id,quantity,proposed_quantity,confirmed_quantity,refund_quantity,refund_reason,unit_price,products(id,name,specification,type,slot_size,stores(id,name))),refunds(id,reason,amount,message,transferred_at)").eq("pickup_date", pickupDate).order("created_at", { ascending: true }),
       supabase.from("stores").select("id,name").order("name"),
       supabase.from("store_transfers").select("id,pickup_date,type,amount,transferred_at,memo,stores(name)").eq("pickup_date", pickupDate).order("created_at", { ascending: false }),
       supabase.from("pickup_product_inventory").select("product_id,available_quantity").eq("pickup_date", pickupDate),
@@ -148,6 +148,11 @@ export function AdminOrders() {
     if (error) setNotice(`주문을 불러오지 못했어요: ${error.message}`);
     const loaded = (data ?? []) as unknown as Order[];
     setOrders(loaded);
+    setConfirmationNotes((previous) => {
+      const next = { ...previous };
+      for (const order of loaded) next[order.id] = order.confirmation_note ?? "";
+      return next;
+    });
     const requestedByProduct = new Map<string, number>();
     for (const order of loaded) if (order.paid_at && ["paid_recruiting", "slot_confirmed", "store_checking"].includes(order.status)) for (const line of order.order_items) {
       if (line.products?.id) requestedByProduct.set(line.products.id, (requestedByProduct.get(line.products.id) ?? 0) + line.quantity);
@@ -380,8 +385,13 @@ export function AdminOrders() {
       drafts = inventoryOrders.map((entry) => ({ order_id: entry.id, refund_reason: reallocation.reasons[entry.id] ?? refundReason[entry.id] ?? "quantity_unavailable", items: entry.order_items.map((line) => ({ order_item_id: line.id, proposed_quantity: reallocation.planned[entry.id]?.[line.id] ?? 0 })) }));
     }
     const { error } = await supabase.rpc("prepare_pickup_order_drafts", { p_pickup_date: pickupDate, p_drafts: drafts, p_product_inventory: productInventory });
-    setNotice(error ? `주문 초안을 저장하지 못했어요: ${error.message}` : triggersWholeRefund ? "전체 환불 주문을 반영해 모든 상품을 다시 배분했어요. 확정 가능·불가 탭에서 새 결과를 확인해 주세요." : `${order.order_number} 주문별 검토 내용을 저장했어요.`);
-    if (!error) {
+    if (error) setNotice(`주문 초안을 저장하지 못했어요: ${error.message}`);
+    else {
+      const ordersWithNotes = triggersWholeRefund ? inventoryOrders : [order];
+      const noteResults = await Promise.all(ordersWithNotes.map((entry) => supabase.from("orders").update({ confirmation_note: (confirmationNotes[entry.id] ?? entry.confirmation_note ?? "").trim().slice(0, 500) }).eq("id", entry.id)));
+      const noteError = noteResults.find((result) => result.error)?.error;
+      if (noteError) { setNotice(`수량은 저장했지만 주문서 비고를 저장하지 못했어요: ${noteError.message}`); return; }
+      setNotice(triggersWholeRefund ? "전체 환불 주문을 반영해 모든 상품을 다시 배분하고 비고를 저장했어요. 확정 가능·불가 탭에서 새 결과를 확인해 주세요." : `${order.order_number} 주문별 수량과 비고를 저장했어요.`);
       setModifiedDraftOrders((current) => triggersWholeRefund ? Object.fromEntries(Object.keys(current).map((key) => [key, false])) : ({ ...current, [order.id]: false }));
       await load();
     }
@@ -450,7 +460,7 @@ export function AdminOrders() {
               {fullOrderRefund && <p className="inventory-full-refund-note">전체 환불 선택 주문에 미확정 수량이 있어 모든 상품이 불가 처리됩니다. 주문별 저장 시 다른 주문에 물량을 다시 배분합니다.</p>}
             </article>;
           })}</div> : <div className="admin-empty">{draftResultTab === "confirmed" ? "확정 가능한 상품이 없습니다." : "확정 불가 상품이 없습니다."}</div>; })()}
-          <div className="draft-order-settings"><h3>주문서 비고와 환불 사유</h3>{draftOrders.map((order) => <article className="draft-order-setting" key={order.id}><b>{order.order_number} · {order.profiles?.nickname ?? "고객"}</b><select aria-label={`${order.order_number} 환불 사유`} value={refundReason[order.id] ?? order.order_items.find((line) => line.refund_reason)?.refund_reason ?? "quantity_unavailable"} onChange={(event) => setRefundReason((values) => ({ ...values, [order.id]: event.target.value }))}><optgroup label="슬롯 모집 결과"><option value="slot_unfilled">1세트 미달 · 모집량 부족</option><option value="slot_boundary">세트 잔여 · 다음 세트 미달</option></optgroup><optgroup label="가게 사정"><option value="quantity_unavailable">가게 수량 확보 불가</option><option value="quality">품질 기준 미충족</option><option value="price_limit">가격 기준 초과</option><option value="urgent_store_unreachable">가게 연락 불가</option></optgroup></select><label className="ops-note-field"><span>주문서 비고 <small>선택 입력 · 비우면 비고 없이 발급</small></span><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder=""/></label><button className="ops-action" onClick={() => void saveDraftOrder(order)}>수량·비고 저장</button></article>)}</div>
+          <div className="draft-order-settings"><h3>주문별 설정</h3>{draftOrders.map((order) => <article className="draft-order-setting" key={order.id}><b>{order.order_number} · {order.profiles?.nickname ?? "고객"}</b><label className="ops-refund-reason"><span>환불 사유</span><select aria-label={`${order.order_number} 환불 사유`} value={refundReason[order.id] ?? order.order_items.find((line) => line.refund_reason)?.refund_reason ?? "quantity_unavailable"} onChange={(event) => setRefundReason((values) => ({ ...values, [order.id]: event.target.value }))}><optgroup label="슬롯 모집 결과"><option value="slot_unfilled">1세트 미달 · 모집량 부족</option><option value="slot_boundary">세트 잔여 · 다음 세트 미달</option></optgroup><optgroup label="가게 사정"><option value="quantity_unavailable">가게 수량 확보 불가</option><option value="quality">품질 기준 미충족</option><option value="price_limit">가격 기준 초과</option><option value="urgent_store_unreachable">가게 연락 불가</option></optgroup></select></label><label className="ops-note-field"><span>주문서 비고 <small>환불이 없는 주문에도 입력할 수 있어요. 고객 주문 내역과 주문확인서에 표시됩니다.</small></span><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder="예: 매장 입구 오른쪽에서 픽업해 주세요."/></label><button className="ops-action" onClick={() => void saveDraftOrder(order)}>수량·비고 저장</button></article>)}</div>
           <button className="ops-action primary" style={{ marginTop: 12 }} disabled={finalizingAll || unsavedDraftEdits} onClick={() => void finalizeAllDraftOrders()}><PackageCheck size={15}/>{finalizingAll ? "전체 확정 처리 중…" : `전체 확정 · 주문확인서 발급 (${draftOrders.length}건)`}</button><p className="admin-help">전체 확정 전 수량 변경사항을 저장해 주세요. 저장된 결과는 상품별 재고 한도와 슬롯 경계를 서버에서도 검증합니다.</p>
         </> : <div className="admin-empty">아직 검토할 1차 확정 주문이 없습니다. 위에서 상품 물량을 저장해 주세요.</div>}
       </section>
