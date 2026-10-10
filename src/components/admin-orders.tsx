@@ -43,6 +43,75 @@ function slotQuantityExpression(specification: string, slotSize: number, sets: n
   return `${specification.trim() ? `${specification.trim()} × ` : ""}${slotSize}개 × ${sets}세트 (${slotSize * sets}개 상품)`;
 }
 
+function slotAvailabilityLabel(requested: number, available: number, slotSize: number) {
+  const size = Math.max(1, slotSize);
+  const usable = Math.min(requested, Math.max(0, available));
+  const sets = Math.floor(usable / size);
+  const confirmed = sets * size;
+  const unavailable = Math.max(0, requested - confirmed);
+  if (sets === 0) return `구매 불가 · 1세트 미달 (가능 ${usable}/${size}상품)`;
+  if (unavailable > 0) return `${sets}세트 가능 · 다음 세트 미달 (${unavailable}상품 불가)`;
+  return `${sets}세트 가능 · 주문 수량 확정 가능`;
+}
+
+function allocateProducts(orders: Order[], capacities: Record<string, number>, initiallyRefunded = new Set<string>()) {
+  const productLines = new Map<string, { order: Order; line: Line }[]>();
+  for (const order of orders) for (const line of order.order_items) {
+    if (!line.products?.id) continue;
+    const lines = productLines.get(line.products.id) ?? [];
+    lines.push({ order, line });
+    productLines.set(line.products.id, lines);
+  }
+
+  const cancelled = new Set(initiallyRefunded);
+  const planned: Record<string, Record<string, number>> = {};
+  const reasons: Record<string, string> = {};
+  for (let attempt = 0; attempt <= orders.length; attempt += 1) {
+    for (const order of orders) planned[order.id] = Object.fromEntries(order.order_items.map((line) => [line.id, 0]));
+    for (const [productId, allLines] of productLines) {
+      const activeLines = allLines.filter(({ order }) => !cancelled.has(order.id));
+      const requested = activeLines.reduce((sum, entry) => sum + entry.line.quantity, 0);
+      const rawCapacity = Math.max(0, capacities[productId] ?? requested);
+      const product = allLines[0]?.line.products;
+      const slotSize = product?.type === "slot" ? Math.max(1, product.slot_size ?? 1) : 1;
+      let remaining = product?.type === "slot" ? Math.floor(Math.min(rawCapacity, requested) / slotSize) * slotSize : Math.min(rawCapacity, requested);
+      for (const { order, line } of activeLines) {
+        const confirmed = Math.min(line.quantity, remaining);
+        planned[order.id][line.id] = confirmed;
+        remaining -= confirmed;
+      }
+    }
+
+    const newlyRefunded = orders.filter((order) => order.refund_preference === "all_or_nothing" && !cancelled.has(order.id) && order.order_items.some((line) => (planned[order.id]?.[line.id] ?? 0) < line.quantity));
+    if (!newlyRefunded.length) break;
+    for (const order of newlyRefunded) {
+      const shortLine = order.order_items.find((line) => (planned[order.id]?.[line.id] ?? 0) < line.quantity);
+      const productId = shortLine?.products?.id;
+      const product = shortLine?.products;
+      const activeDemand = productId ? productLines.get(productId)?.filter(({ order: candidate }) => !cancelled.has(candidate.id)).reduce((sum, entry) => sum + entry.line.quantity, 0) ?? 0 : 0;
+      const fullSets = product?.type === "slot" ? Math.floor(Math.min(capacities[productId ?? ""] ?? activeDemand, activeDemand) / Math.max(1, product.slot_size ?? 1)) : 0;
+      reasons[order.id] = product?.type === "slot" ? (fullSets === 0 ? "slot_unfilled" : "slot_boundary") : "quantity_unavailable";
+      cancelled.add(order.id);
+    }
+  }
+
+  for (const orderId of cancelled) {
+    const order = orders.find((entry) => entry.id === orderId);
+    if (order) for (const line of order.order_items) planned[orderId][line.id] = 0;
+  }
+  for (const order of orders) {
+    if (reasons[order.id]) continue;
+    const shortLine = order.order_items.find((line) => (planned[order.id]?.[line.id] ?? 0) < line.quantity);
+    if (!shortLine) continue;
+    const productId = shortLine.products?.id ?? "";
+    const product = shortLine.products;
+    const requested = productLines.get(productId)?.filter(({ order: candidate }) => !cancelled.has(candidate.id)).reduce((sum, entry) => sum + entry.line.quantity, 0) ?? 0;
+    const slotSize = product?.type === "slot" ? Math.max(1, product.slot_size ?? 1) : 1;
+    reasons[order.id] = product?.type === "slot" ? (Math.floor(Math.min(capacities[productId] ?? requested, requested) / slotSize) === 0 ? "slot_unfilled" : "slot_boundary") : "quantity_unavailable";
+  }
+  return { planned, reasons, cancelled };
+}
+
 export function AdminOrders() {
   const dates = useMemo(() => upcomingDates(), []);
   const [pickupDate, setPickupDate] = useState(() => dates.find((entry) => !entry.previous)?.date ?? dates[0].date);
@@ -53,6 +122,8 @@ export function AdminOrders() {
   const [lineQuantities, setLineQuantities] = useState<Record<string, Record<string, number>>>({});
   const [refundReason, setRefundReason] = useState<Record<string, string>>({});
   const [confirmationNotes, setConfirmationNotes] = useState<Record<string, string>>({});
+  const [draftResultTab, setDraftResultTab] = useState<"confirmed" | "unavailable">("confirmed");
+  const [modifiedDraftOrders, setModifiedDraftOrders] = useState<Record<string, boolean>>({});
   const [inventoryModes, setInventoryModes] = useState<Record<string, "all" | "quantity" | "unavailable">>({});
   const [inventoryQuantities, setInventoryQuantities] = useState<Record<string, number>>({});
   const [savingInventory, setSavingInventory] = useState(false);
@@ -67,15 +138,24 @@ export function AdminOrders() {
     const supabase = createClient();
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
-    const [ordersResult, storesResult, transfersResult] = await Promise.all([
+    const [ordersResult, storesResult, transfersResult, inventoryResult] = await Promise.all([
       supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,inventory_reviewed_at,created_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,refund_preference,cancellation_requested_at,profiles(nickname),order_items(id,quantity,proposed_quantity,confirmed_quantity,refund_quantity,refund_reason,unit_price,products(id,name,specification,type,slot_size,stores(id,name))),refunds(id,reason,amount,message,transferred_at)").eq("pickup_date", pickupDate).order("created_at", { ascending: true }),
       supabase.from("stores").select("id,name").order("name"),
       supabase.from("store_transfers").select("id,pickup_date,type,amount,transferred_at,memo,stores(name)").eq("pickup_date", pickupDate).order("created_at", { ascending: false }),
+      supabase.from("pickup_product_inventory").select("product_id,available_quantity").eq("pickup_date", pickupDate),
     ]);
     const { data, error } = ordersResult;
     if (error) setNotice(`주문을 불러오지 못했어요: ${error.message}`);
     const loaded = (data ?? []) as unknown as Order[];
     setOrders(loaded);
+    const requestedByProduct = new Map<string, number>();
+    for (const order of loaded) if (order.paid_at && ["paid_recruiting", "slot_confirmed", "store_checking"].includes(order.status)) for (const line of order.order_items) {
+      if (line.products?.id) requestedByProduct.set(line.products.id, (requestedByProduct.get(line.products.id) ?? 0) + line.quantity);
+    }
+    const savedInventory = (inventoryResult.data ?? []) as { product_id: string; available_quantity: number }[];
+    setInventoryQuantities(Object.fromEntries(savedInventory.map((item) => [item.product_id, Number(item.available_quantity)])));
+    setInventoryModes(Object.fromEntries(savedInventory.map((item) => [item.product_id, Number(item.available_quantity) === (requestedByProduct.get(item.product_id) ?? 0) ? "all" : "quantity"])));
+    setModifiedDraftOrders({});
     const { data: storeData } = storesResult;
     const { data: transferData } = transfersResult;
     setStores((storeData ?? []) as StoreOption[]);
@@ -110,6 +190,14 @@ export function AdminOrders() {
   const paidOrders = orders.filter((order) => Boolean(order.paid_at) || !["awaiting_payment", "cancelled_unpaid"].includes(order.status));
   const inventoryOrders = orders.filter((order) => Boolean(order.paid_at) && ["paid_recruiting", "slot_confirmed", "store_checking"].includes(order.status)).sort((a, b) => a.created_at.localeCompare(b.created_at));
   const draftOrders = inventoryOrders.filter((order) => Boolean(order.inventory_reviewed_at));
+  const draftRows = draftOrders.flatMap((order) => {
+    const quantities = order.order_items.map((line) => ({ line, entered: Math.min(line.quantity, Math.max(0, Number(lineQuantities[order.id]?.[line.id] ?? line.proposed_quantity ?? line.quantity))) }));
+    const fullOrderRefund = order.refund_preference === "all_or_nothing" && quantities.some(({ line, entered }) => entered < line.quantity);
+    return quantities.map(({ line, entered }) => ({ order, line, confirmed: fullOrderRefund ? 0 : entered, unavailable: fullOrderRefund ? line.quantity : line.quantity - entered, fullOrderRefund }));
+  });
+  const confirmableRows = draftRows.filter((row) => row.confirmed > 0);
+  const unavailableRows = draftRows.filter((row) => row.unavailable > 0);
+  const unsavedDraftEdits = Object.values(modifiedDraftOrders).some(Boolean);
   const summary = new Map<string, ProductTotal>();
   for (const order of activeOrders) for (const line of order.order_items) {
     const key = `${line.products?.id ?? line.id}`;
@@ -248,55 +336,17 @@ export function AdminOrders() {
       const entries = productLines.get(productId) ?? [];
       entries.push({ order, line }); productLines.set(productId, entries);
     }
-    const cancelled = new Set<string>();
-    let planned: Record<string, Record<string, number>> = {};
-    const capFor = (productId: string, lines: { order: Order; line: Line }[]) => {
-      const requested = lines.reduce((sum, entry) => sum + entry.line.quantity, 0);
-      const product = lines[0]?.line.products;
-      const mode = inventoryModes[productId] ?? "all";
-      const raw = mode === "unavailable" ? 0 : mode === "quantity" ? Math.max(0, Math.min(requested, Number(inventoryQuantities[productId] ?? 0))) : requested;
-      return product?.type === "slot" && product.slot_size ? Math.floor(raw / product.slot_size) * product.slot_size : raw;
-    };
-    for (let attempt = 0; attempt <= inventoryOrders.length; attempt += 1) {
-      planned = Object.fromEntries(inventoryOrders.map((order) => [order.id, Object.fromEntries(order.order_items.map((line) => [line.id, 0]))]));
-      for (const [productId, allLines] of productLines) {
-        const lines = allLines.filter(({ order }) => !cancelled.has(order.id));
-        const requested = lines.reduce((sum, entry) => sum + entry.line.quantity, 0);
-        const rawCapacity = capFor(productId, allLines);
-        const isSlot = allLines[0]?.line.products?.type === "slot";
-        const slotSize = allLines[0]?.line.products?.slot_size ?? 1;
-        let remaining = isSlot ? Math.floor(Math.min(rawCapacity, requested) / slotSize) * slotSize : Math.min(rawCapacity, requested);
-        for (const { order, line } of lines) {
-          const confirmed = Math.min(line.quantity, remaining);
-          planned[order.id][line.id] = confirmed;
-          remaining -= confirmed;
-        }
-      }
-      const newlyCancelled = inventoryOrders.filter((order) => order.refund_preference === "all_or_nothing" && !cancelled.has(order.id) && order.order_items.some((line) => (planned[order.id]?.[line.id] ?? 0) < line.quantity));
-      if (!newlyCancelled.length) break;
-      newlyCancelled.forEach((order) => cancelled.add(order.id));
-    }
-    for (const order of cancelled) for (const line of inventoryOrders.find((item) => item.id === order)?.order_items ?? []) planned[order][line.id] = 0;
-    const reasons: Record<string, string> = {};
-    for (const order of inventoryOrders) {
-      const shortLines = order.order_items.filter((line) => (planned[order.id]?.[line.id] ?? 0) < line.quantity);
-      const first = shortLines[0];
-      if (first) {
-        const slotSize = first.products?.slot_size ?? 0;
-        const productId = first.products?.id;
-        const cap = productId ? capFor(productId, productLines.get(productId) ?? []) : 0;
-        reasons[order.id] = first.products?.type === "slot" ? (cap < slotSize ? "slot_unfilled" : "slot_boundary") : "quantity_unavailable";
-      }
-    }
-    setLineQuantities((current) => ({ ...current, ...planned }));
-    setRefundReason((current) => ({ ...current, ...reasons }));
-    const drafts = inventoryOrders.map((order) => ({ order_id: order.id, refund_reason: reasons[order.id] ?? "quantity_unavailable", items: order.order_items.map((line) => ({ order_item_id: line.id, proposed_quantity: planned[order.id][line.id] })) }));
     const productInventory = [...productLines].map(([productId, lines]) => {
       const requested = lines.reduce((sum, entry) => sum + entry.line.quantity, 0);
       const mode = inventoryModes[productId] ?? "all";
       const available = mode === "unavailable" ? 0 : mode === "quantity" ? Math.max(0, Math.min(requested, Number(inventoryQuantities[productId] ?? 0))) : requested;
       return { product_id: productId, available_quantity: available };
     });
+    const capacities = Object.fromEntries(productInventory.map((entry) => [entry.product_id, entry.available_quantity]));
+    const { planned, reasons } = allocateProducts(inventoryOrders, capacities);
+    setLineQuantities((current) => ({ ...current, ...planned }));
+    setRefundReason((current) => ({ ...current, ...reasons }));
+    const drafts = inventoryOrders.map((order) => ({ order_id: order.id, refund_reason: reasons[order.id] ?? "quantity_unavailable", items: order.order_items.map((line) => ({ order_item_id: line.id, proposed_quantity: planned[order.id][line.id] })) }));
     const { error: orderFailure } = await supabase.rpc("prepare_pickup_order_drafts", { p_pickup_date: pickupDate, p_drafts: drafts, p_product_inventory: productInventory });
     setSavingInventory(false);
     if (orderFailure) { setNotice(`상품별 1차 확정 수량을 저장하지 못했어요: ${orderFailure.message}`); return; }
@@ -304,17 +354,43 @@ export function AdminOrders() {
     await load();
   }
 
+  function updateDraftQuantity(orderId: string, lineId: string, quantity: number) {
+    setLineQuantities((values) => ({ ...values, [orderId]: { ...values[orderId], [lineId]: quantity } }));
+    setModifiedDraftOrders((values) => ({ ...values, [orderId]: true }));
+  }
+
   async function saveDraftOrder(order: Order) {
     const supabase = createClient();
     if (!supabase) return;
-    const { error } = await supabase.rpc("prepare_pickup_order_drafts", { p_pickup_date: pickupDate, p_drafts: [{ order_id: order.id, refund_reason: refundReason[order.id] ?? "quantity_unavailable", items: order.order_items.map((line) => ({ order_item_id: line.id, proposed_quantity: Math.min(line.quantity, Math.max(0, Number(lineQuantities[order.id]?.[line.id] ?? line.proposed_quantity ?? line.quantity))) })) }], p_product_inventory: [] });
-    setNotice(error ? `주문 초안을 저장하지 못했어요: ${error.message}` : `${order.order_number} 주문별 검토 내용을 저장했어요.`);
-    if (!error) await load();
+    const editedItems = order.order_items.map((line) => ({ order_item_id: line.id, proposed_quantity: Math.min(line.quantity, Math.max(0, Number(lineQuantities[order.id]?.[line.id] ?? line.proposed_quantity ?? line.quantity))) }));
+    const hasQuantityChanges = editedItems.some((item) => item.proposed_quantity !== (order.order_items.find((line) => line.id === item.order_item_id)?.proposed_quantity ?? order.order_items.find((line) => line.id === item.order_item_id)?.quantity));
+    const triggersWholeRefund = hasQuantityChanges && order.refund_preference === "all_or_nothing" && editedItems.some((item) => item.proposed_quantity < (order.order_items.find((line) => line.id === item.order_item_id)?.quantity ?? 0));
+    let drafts = [{ order_id: order.id, refund_reason: refundReason[order.id] ?? "quantity_unavailable", items: editedItems }];
+    let productInventory: { product_id: string; available_quantity: number }[] = [];
+    if (triggersWholeRefund) {
+      if (!window.confirm("이 주문은 전체 환불 대상이 됩니다. 이 주문의 다른 상품 물량도 다시 배분하여 여러 주문의 확정 수량이 바뀔 수 있어요. 저장된 상품별 가게 물량을 유지하고 주문서 비고는 보존합니다. 다시 배분할까요?")) return;
+      const { data, error: inventoryError } = await supabase.from("pickup_product_inventory").select("product_id,available_quantity").eq("pickup_date", pickupDate);
+      if (inventoryError) { setNotice(`저장된 가게 물량을 불러오지 못했어요: ${inventoryError.message}`); return; }
+      productInventory = (data ?? []) as { product_id: string; available_quantity: number }[];
+      const capacities = Object.fromEntries(productInventory.map((entry) => [entry.product_id, entry.available_quantity]));
+      const forcedRefunds = new Set([order.id]);
+      const reallocation = allocateProducts(inventoryOrders, capacities, forcedRefunds);
+      setLineQuantities((current) => ({ ...current, ...reallocation.planned }));
+      setRefundReason((current) => ({ ...current, ...reallocation.reasons }));
+      drafts = inventoryOrders.map((entry) => ({ order_id: entry.id, refund_reason: reallocation.reasons[entry.id] ?? refundReason[entry.id] ?? "quantity_unavailable", items: entry.order_items.map((line) => ({ order_item_id: line.id, proposed_quantity: reallocation.planned[entry.id]?.[line.id] ?? 0 })) }));
+    }
+    const { error } = await supabase.rpc("prepare_pickup_order_drafts", { p_pickup_date: pickupDate, p_drafts: drafts, p_product_inventory: productInventory });
+    setNotice(error ? `주문 초안을 저장하지 못했어요: ${error.message}` : triggersWholeRefund ? "전체 환불 주문을 반영해 모든 상품을 다시 배분했어요. 확정 가능·불가 탭에서 새 결과를 확인해 주세요." : `${order.order_number} 주문별 검토 내용을 저장했어요.`);
+    if (!error) {
+      setModifiedDraftOrders((current) => triggersWholeRefund ? Object.fromEntries(Object.keys(current).map((key) => [key, false])) : ({ ...current, [order.id]: false }));
+      await load();
+    }
   }
 
   async function finalizeAllDraftOrders() {
     const supabase = createClient();
     if (!supabase || !draftOrders.length) return;
+    if (unsavedDraftEdits) { setNotice("수량을 수정한 주문의 ‘변경사항 저장’을 먼저 눌러주세요. 전체 환불 주문이 있으면 다른 상품도 다시 배분됩니다."); return; }
     if (!window.confirm(`${draftOrders.length}건의 1차 확정 주문을 최종 확정하고 주문확인서를 발급할까요? 부족 수량의 환불 내역도 함께 기록됩니다.`)) return;
     setFinalizingAll(true);
     const payload = draftOrders.map((order) => ({
@@ -347,8 +423,10 @@ export function AdminOrders() {
           const requested = inventoryOrders.reduce((sum, order) => sum + order.order_items.filter((line) => line.products?.id === item.id).reduce((lineSum, line) => lineSum + line.quantity, 0), 0);
           const mode = inventoryModes[item.id] ?? "all";
           const available = mode === "unavailable" ? 0 : mode === "quantity" ? Number(inventoryQuantities[item.id] ?? 0) : requested;
-          const impossible = item.type === "slot" && (available < (item.slotSize ?? 1) || requested < (item.slotSize ?? 1));
-          return <article className="inventory-product-row" key={item.id}><div className="inventory-product-info"><b>{item.store} · {item.name}</b><small>{item.specification} · {item.type === "slot" ? `슬롯 ${item.slotSize}상품 단위` : "즉시 구매"} · 주문 {requested}상품</small>{impossible && <strong className="inventory-unavailable">구매 불가 · 슬롯 1세트 미달</strong>}</div><div className="inventory-product-controls"><select aria-label={`${item.name} 물량 가능 여부`} value={mode} onChange={(event) => setInventoryModes((values) => ({ ...values, [item.id]: event.target.value as "all" | "quantity" | "unavailable" }))}><option value="all">전체 물량 가능 ({requested})</option><option value="quantity">가능한 상품 수 입력</option><option value="unavailable">전체 물량 불가</option></select>{mode === "quantity" && <label><input type="number" min="0" max={requested} inputMode="numeric" value={inventoryQuantities[item.id] ?? ""} onChange={(event) => setInventoryQuantities((values) => ({ ...values, [item.id]: Math.max(0, Number(event.target.value)) }))}/><span>상품</span></label>}</div></article>;
+          const slotStatus = item.type === "slot" ? slotAvailabilityLabel(requested, available, item.slotSize ?? 1) : mode === "unavailable" ? "구매 불가 · 가게 물량 없음" : `${Math.min(requested, Math.max(0, available))}/${requested}상품 가능`;
+          const unavailable = item.type === "slot" ? !slotStatus.includes("주문 수량 확정 가능") : mode === "unavailable" || available < requested;
+          const statusClass = item.type === "slot" && unavailable && slotStatus.includes("세트 가능") ? "inventory-partial" : unavailable ? "inventory-unavailable" : "inventory-available";
+          return <article className="inventory-product-row" key={item.id}><div className="inventory-product-info"><b>{item.store} · {item.name}</b><small>{item.specification} · {item.type === "slot" ? `슬롯 ${item.slotSize}상품 단위` : "즉시 구매"} · 주문 {requested}상품</small><strong className={statusClass}>{slotStatus}</strong></div><div className="inventory-product-controls"><select aria-label={`${item.name} 물량 가능 여부`} value={mode} onChange={(event) => setInventoryModes((values) => ({ ...values, [item.id]: event.target.value as "all" | "quantity" | "unavailable" }))}><option value="all">전체 물량 가능 ({requested})</option><option value="quantity">가능한 상품 수 입력</option><option value="unavailable">전체 물량 불가</option></select>{mode === "quantity" && <label><input type="number" min="0" max={requested} inputMode="numeric" value={inventoryQuantities[item.id] ?? ""} onChange={(event) => setInventoryQuantities((values) => ({ ...values, [item.id]: Math.max(0, Number(event.target.value)) }))}/><span>상품</span></label>}</div></article>;
         })}</div> : <div className="admin-empty">물량을 확인할 입금 완료 주문이 없어요.</div>}
         <button className="ops-action primary" style={{ marginTop: 12 }} disabled={!inventoryOrders.length || savingInventory} onClick={() => void saveInventoryAndPrepareOrders()}><PackageCheck size={15}/>{savingInventory ? "1차 확정 저장 중…" : "물량 저장 · 주문서 1차 확정"}</button>
       </section>
@@ -359,16 +437,22 @@ export function AdminOrders() {
         const quantityText = item.type === "slot" ? item.slotCalculated ? slotQuantityExpression(item.specification, slotSize, confirmedSets) : `슬롯 확정 대기 · ${slotQuantityExpression(item.specification, slotSize, possibleSets)} 가능` : productQuantityExpression(item.specification, item.confirmed);
         return <span className="store-order-product" key={item.id}><b>{item.name}</b><small>{quantityText} · {won(item.amount)}원</small>{item.type === "slot" && item.slotCalculated && <small>가게 확인 제외: {productQuantityExpression(item.specification, Math.max(0, item.paid - item.confirmed))}</small>}{item.unpaid > 0 && <small>입금 대기 주문 {productQuantityExpression(item.specification, item.unpaid)} (금액 합계 제외)</small>}</span>;
       })}</span><small>{store.products.every((item) => item.paid === 0) ? "입금 확인된 주문 없음" : store.amountReady ? "최종 확정 수량 기준 · 저장된 판매 단가 합계" : "현재 확인 대상 기준 예상 금액 · 최종 수량 확정 후 금액 갱신"}</small></div><strong className="store-order-total"><small>{store.products.every((item) => item.paid === 0) ? "계산 대기" : store.amountReady ? "청과점에 보낼 금액" : "예상 보낼 금액"}</small>{won(store.amount)}원</strong></article>)}</div> : <div className="admin-empty">이 픽업일의 주문이 없어요.</div>}</section>
-      <section className="admin-card draft-review"><div className="ops-date-title"><div><h2>1차 확정 주문서 검토</h2><p>주문별 상품 수량을 수정하고 비고를 적은 뒤 전체 확정합니다.</p></div><span className="inventory-count">{draftOrders.length}건</span></div>
-        {draftOrders.length ? <><div className="ops-order-list">{draftOrders.map((order) => <article className="ops-order-card draft-order-card" key={order.id}>
-          <div className="ops-order-head"><div><b>{order.order_number}</b><small>{order.profiles?.nickname ?? "고객"} · {order.depositor_name} · {won(order.total)}원 주문</small></div><span className="order-status ready">1차 확정 · 검토</span></div>
-          <div className="ops-finalize">{order.order_items.map((line) => { const proposed = line.proposed_quantity ?? line.quantity; return <label className="draft-quantity-row" key={line.id}><span><b>{line.products?.name ?? "상품"}</b><small>{line.products?.stores?.name ?? "가게 미지정"} · 주문 {productQuantityExpression(line.products?.specification ?? "", line.quantity)} · 1차 {productQuantityExpression(line.products?.specification ?? "", proposed)}</small></span><input type="number" min={0} max={line.quantity} value={Math.min(line.quantity, Math.max(0, Number(lineQuantities[order.id]?.[line.id] ?? proposed)))} onChange={(event) => setLineQuantities((values) => ({ ...values, [order.id]: { ...values[order.id], [line.id]: Number(event.target.value) } }))}/></label>; })}
-            <select aria-label="환불 사유" value={refundReason[order.id] ?? order.order_items.find((line) => line.refund_reason)?.refund_reason ?? "quantity_unavailable"} onChange={(event) => setRefundReason((values) => ({ ...values, [order.id]: event.target.value }))}><optgroup label="슬롯 모집 결과"><option value="slot_unfilled">1세트 미달 · 모집량이 1세트를 채우지 못함</option><option value="slot_boundary">세트 잔여 · 다음 세트 미달</option></optgroup><optgroup label="가게 사정"><option value="quantity_unavailable">가게 수량 확보 불가</option><option value="quality">품질 기준 미충족</option><option value="price_limit">가격 기준 초과</option><option value="urgent_store_unreachable">가게 연락 불가</option></optgroup></select>
-            <label className="ops-note-field"><span>주문서 비고 <small>선택 입력 · 비워두면 비고 없이 발급</small></span><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder=""/></label>
-            <small>{order.refund_preference === "all_or_nothing" ? "전체 환불 선택: 수량이 부족한 품목이 있으면 이 주문 전체가 환불됩니다." : "일부 환불 선택: 부족한 상품만 환불하고 확보한 다른 상품은 유지합니다."}</small>
-            <button className="ops-action" onClick={() => void saveDraftOrder(order)}>이 주문 변경사항 저장</button>
-          </div>
-        </article>)}</div><button className="ops-action primary" style={{ marginTop: 12 }} disabled={finalizingAll} onClick={() => void finalizeAllDraftOrders()}><PackageCheck size={15}/>{finalizingAll ? "전체 확정 처리 중…" : `전체 확정 · 주문확인서 발급 (${draftOrders.length}건)`}</button><p className="admin-help">전체 확정 시 모든 주문과 환불 내역이 한 번에 저장됩니다. 한 건이라도 처리할 수 없으면 전체 변경이 취소됩니다.</p></> : <div className="admin-empty">아직 검토할 1차 확정 주문이 없습니다. 위에서 상품 물량을 저장해 주세요.</div>}
+      <section className="admin-card draft-review"><div className="ops-date-title"><div><h2>1차 확정 결과 검토</h2><p>확정 가능·불가 수량을 나눠 확인하고 주문서를 검토하세요.</p></div><span className="inventory-count">{draftOrders.length}건</span></div>
+        {draftOrders.length ? <>
+          <div className="ops-tabs inventory-result-tabs"><button className={draftResultTab === "confirmed" ? "selected" : ""} onClick={() => setDraftResultTab("confirmed")}><PackageCheck size={14}/>확정 가능 · {confirmableRows.reduce((sum, row) => sum + row.confirmed, 0)}상품</button><button className={draftResultTab === "unavailable" ? "selected" : ""} onClick={() => setDraftResultTab("unavailable")}><span>확정 불가 · {unavailableRows.reduce((sum, row) => sum + row.unavailable, 0)}상품</span></button></div>
+          {unsavedDraftEdits && <div className="admin-notice">수량 변경을 저장하기 전입니다. 전체 환불 주문이면 저장할 때 모든 상품을 다시 선착순 배분합니다.</div>}
+          {(() => { const rows = draftResultTab === "confirmed" ? confirmableRows : unavailableRows; return rows.length ? <div className="ops-order-list inventory-result-list">{rows.map(({ order, line, confirmed, unavailable, fullOrderRefund }) => {
+            const entered = Math.min(line.quantity, Math.max(0, Number(lineQuantities[order.id]?.[line.id] ?? line.proposed_quantity ?? line.quantity)));
+            return <article className="ops-order-card inventory-result-row" key={`${order.id}-${line.id}-${draftResultTab}`}>
+              <div className="ops-order-head"><div><b>{order.order_number} · {order.profiles?.nickname ?? "고객"}</b><small>{line.products?.stores?.name ?? "가게 미지정"} · {line.products?.name ?? "상품"} · 주문 {productQuantityExpression(line.products?.specification ?? "", line.quantity)}</small></div><span className={`order-status ${draftResultTab === "confirmed" ? "ready" : ""}`}>{fullOrderRefund ? "주문 전체 환불" : draftResultTab === "confirmed" ? "확정 가능" : line.products?.type === "slot" ? "슬롯 미달" : "수량 부족"}</span></div>
+              <div className="inventory-result-quantity"><span>{draftResultTab === "confirmed" ? `확정 가능 ${confirmed}상품` : `확정 불가 ${unavailable}상품`}</span>{line.products?.type === "slot" && <small>슬롯 {line.products.slot_size ?? 1}상품 단위 · 주문 {line.quantity}상품 중 확정 {confirmed} / 불가 {unavailable}</small>}</div>
+              <label className="draft-quantity-row"><span><b>확정할 상품 수</b><small>주문 상품 수량 안에서 수정할 수 있어요.</small></span><input type="number" min={0} max={line.quantity} value={fullOrderRefund ? 0 : entered} onChange={(event) => updateDraftQuantity(order.id, line.id, Number(event.target.value))}/></label>
+              {fullOrderRefund && <p className="inventory-full-refund-note">전체 환불 선택 주문에 미확정 수량이 있어 모든 상품이 불가 처리됩니다. 주문별 저장 시 다른 주문에 물량을 다시 배분합니다.</p>}
+            </article>;
+          })}</div> : <div className="admin-empty">{draftResultTab === "confirmed" ? "확정 가능한 상품이 없습니다." : "확정 불가 상품이 없습니다."}</div>; })()}
+          <div className="draft-order-settings"><h3>주문서 비고와 환불 사유</h3>{draftOrders.map((order) => <article className="draft-order-setting" key={order.id}><b>{order.order_number} · {order.profiles?.nickname ?? "고객"}</b><select aria-label={`${order.order_number} 환불 사유`} value={refundReason[order.id] ?? order.order_items.find((line) => line.refund_reason)?.refund_reason ?? "quantity_unavailable"} onChange={(event) => setRefundReason((values) => ({ ...values, [order.id]: event.target.value }))}><optgroup label="슬롯 모집 결과"><option value="slot_unfilled">1세트 미달 · 모집량 부족</option><option value="slot_boundary">세트 잔여 · 다음 세트 미달</option></optgroup><optgroup label="가게 사정"><option value="quantity_unavailable">가게 수량 확보 불가</option><option value="quality">품질 기준 미충족</option><option value="price_limit">가격 기준 초과</option><option value="urgent_store_unreachable">가게 연락 불가</option></optgroup></select><label className="ops-note-field"><span>주문서 비고 <small>선택 입력 · 비우면 비고 없이 발급</small></span><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder=""/></label><button className="ops-action" onClick={() => void saveDraftOrder(order)}>수량·비고 저장</button></article>)}</div>
+          <button className="ops-action primary" style={{ marginTop: 12 }} disabled={finalizingAll || unsavedDraftEdits} onClick={() => void finalizeAllDraftOrders()}><PackageCheck size={15}/>{finalizingAll ? "전체 확정 처리 중…" : `전체 확정 · 주문확인서 발급 (${draftOrders.length}건)`}</button><p className="admin-help">전체 확정 전 수량 변경사항을 저장해 주세요. 저장된 결과는 상품별 재고 한도와 슬롯 경계를 서버에서도 검증합니다.</p>
+        </> : <div className="admin-empty">아직 검토할 1차 확정 주문이 없습니다. 위에서 상품 물량을 저장해 주세요.</div>}
       </section>
     </> : tab === "payment" ? <section className="admin-card"><h2>주문 목록 · 입금 확인</h2><p className="admin-help">입금 확인부터 픽업 완료까지 이 날짜의 주문을 여기서 확인할 수 있어요. 상품 물량 입력과 주문서 검토·최종 확정은 주문 집계 탭에서 진행합니다.</p>{loading ? <div className="admin-empty">주문을 불러오고 있어요…</div> : paymentOrders.length ? <div className="ops-order-list">{paymentOrders.map((order) => <article className="ops-order-card" key={order.id}>
       <div className="ops-order-head"><div><b>{order.order_number}</b><small>{order.profiles?.nickname ?? "고객"} · {order.depositor_name} · {new Date(order.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></div><span className={`order-status ${order.paid_at ? "ready" : ""}`}>{statusText[order.status] ?? order.status}</span></div>
