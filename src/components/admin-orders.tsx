@@ -132,7 +132,7 @@ export function AdminOrders() {
     groups.set(item.storeId, group);
     return groups;
   }, new Map<string, { id: string; name: string; products: ProductTotal[]; amount: number; amountReady: boolean }>()).values()].sort((a, b) => a.name.localeCompare(b.name));
-  const paymentOrders = orders.filter((order) => order.status === "awaiting_payment" || ["paid_recruiting", "slot_confirmed", "store_checking", "pickup_ready", "picked_up", "auto_completed"].includes(order.status) || Boolean(order.cancellation_requested_at) || order.refunds?.some((refund) => !refund.transferred_at));
+  const paymentOrders = orders.filter((order) => ["awaiting_payment", "cancelled_unpaid", "paid_recruiting", "slot_confirmed", "store_checking", "pickup_ready", "picked_up", "auto_completed"].includes(order.status) || Boolean(order.cancellation_requested_at) || order.refunds?.some((refund) => !refund.transferred_at));
   const refundQueue = orders.flatMap((order) => {
     const orderHasShortage = order.order_items.some((line) => {
       const confirmed = line.confirmed_quantity ?? lineQuantities[order.id]?.[line.id] ?? line.proposed_quantity ?? line.quantity;
@@ -175,6 +175,12 @@ export function AdminOrders() {
     const hasSlot = order.order_items.some((line) => line.products?.type === "slot");
     const nextStatus = hasSlot ? "paid_recruiting" : "store_checking";
     if (await updateOrder(order, { paid_at: new Date().toISOString(), status: nextStatus })) setNotice("입금 확인을 저장했어요.");
+  }
+
+  async function markDepositUnconfirmed(order: Order) {
+    if (!window.confirm(`${order.order_number} 주문의 입금 내역을 찾지 못했습니다. 미입금 취소 처리할까요? 고객 주문 내역에 취소 사유가 표시되고 운영 집계에서 제외됩니다.`)) return;
+    const updated = await updateOrder(order, { status: "cancelled_unpaid", cancelled_at: new Date().toISOString(), cancel_reason: "deposit_not_confirmed" });
+    if (updated) setNotice(`${order.order_number} 주문을 입금 확인 불가 · 미입금 취소로 처리했어요.`);
   }
 
   async function savePaymentSetting(event: React.FormEvent<HTMLFormElement>) {
@@ -383,7 +389,7 @@ export function AdminOrders() {
       <div className="ops-order-lines">{order.order_items.map((line) => <div key={line.id}><span>{line.products?.name ?? "상품"} · {line.quantity}개</span><small>{line.products?.stores?.name ?? "가게 미지정"}</small></div>)}</div>
       <div className="ops-payment-row"><span>입금자 <b>{order.depositor_name}</b></span><strong>{won(order.total)}원</strong></div>
       <div className="ops-transfer-instructions">입금 계좌: {order.payment_bank ? `${order.payment_bank} ${order.payment_account} · ${order.payment_account_holder}` : "계좌 설정 전 접수 주문"}</div>
-      {!order.paid_at && order.status === "awaiting_payment" && <button className="ops-action primary" onClick={() => void confirmDeposit(order)}><Check size={15}/>입금 확인</button>}
+      {!order.paid_at && order.status === "awaiting_payment" && <><button className="ops-action primary" onClick={() => void confirmDeposit(order)}><Check size={15}/>입금 확인</button><button className="ops-action danger" onClick={() => void markDepositUnconfirmed(order)}>입금 확인 불가</button></>}
       {order.cancellation_requested_at && order.status !== "refunded" && <div className="ops-cancel-request"><span>고객 취소·환불 요청</span><button className="ops-action danger" onClick={() => void finishCancellation(order)}>환불 이체 완료 처리</button></div>}
       {order.refunds?.filter((refund) => !refund.transferred_at).map((refund) => <div className="ops-cancel-request" key={refund.id}><span>환불 이체 대기 · {won(refund.amount)}원<br/>{refund.message}</span><button className="ops-action danger" onClick={() => void markRefundTransferred(order, refund)}>환불 이체 완료 처리</button></div>)}
       {(order.status === "slot_confirmed" || order.status === "store_checking") && slotConfirmationTimePassed(order.pickup_date) && <div className="ops-finalize"><h3>가게 물량 확인 · 최종 수량</h3>{order.order_items.map((line) => { const maxQuantity = line.products?.type === "slot" ? line.proposed_quantity ?? line.quantity : line.quantity; return <label key={line.id}><span>{line.products?.name ?? "상품"} · 주문 {productQuantityExpression(line.products?.specification ?? "", line.quantity)} · 확인 대상 최대 {productQuantityExpression(line.products?.specification ?? "", maxQuantity)}</span><input type="number" min={0} max={maxQuantity} value={Math.min(maxQuantity, lineQuantities[order.id]?.[line.id] ?? maxQuantity)} onChange={(event) => setLineQuantities((values) => ({ ...values, [order.id]: { ...values[order.id], [line.id]: Number(event.target.value) } }))}/></label>; })}<select value={refundReason[order.id] ?? order.order_items.find((line) => line.refund_reason)?.refund_reason ?? "quantity_unavailable"} onChange={(event) => setRefundReason((values) => ({ ...values, [order.id]: event.target.value }))}><optgroup label="슬롯 모집 결과"><option value="slot_unfilled">1세트 미달 · 모집량이 1세트를 채우지 못함</option><option value="slot_boundary">세트 잔여 · 1세트 완료 후 다음 세트 미달</option></optgroup><optgroup label="가게 사정 · 운영자 확인"><option value="quantity_unavailable">가게 수량 확보 불가</option><option value="quality">품질 기준 미충족</option><option value="price_limit">가격 기준 초과</option><option value="urgent_store_unreachable">가게 연락 불가</option></optgroup></select><label className="ops-note-field"><span>주문서 비고 <small>고객에게 표시할 추가 안내 (선택)</small></span><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder="예: 가격 차이가 커서 일부 상품은 환불됐습니다."/></label><small>{order.refund_preference === "all_or_nothing" ? "전체 환불 선택 주문: 한 품목이라도 부족하면 주문 전체가 환불 대상입니다." : "일부 환불 선택 주문: 슬롯 확정 수량 안에서 가게가 준비한 수량만 확정하고 부족분은 환불합니다."} 슬롯 확정량보다 많이 늘릴 수는 없어요.</small><button className="ops-action primary" onClick={() => void finalizeOrder(order)}><PackageCheck size={15}/>확정 수량 저장</button></div>}
