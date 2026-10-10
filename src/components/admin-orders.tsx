@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, CircleDollarSign, PackageCheck, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { formatPickupDate, nextPickupDate, type PickupDay } from "@/lib/pickup-dates";
+import { formatPickupDate, nextPickupDate, slotConfirmationTimePassed, type PickupDay } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
 
 type Line = { id: string; quantity: number; proposed_quantity: number | null; confirmed_quantity: number | null; refund_quantity: number; refund_reason: string | null; unit_price: number; products: { id: string; name: string; specification: string; type: "slot" | "instant"; slot_size: number | null; stores: { id: string; name: string } | null } | null };
@@ -117,6 +117,7 @@ export function AdminOrders() {
   const [pickupDate, setPickupDate] = useState(() => dates.find((entry) => !entry.previous)?.date ?? dates[0].date);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
   const [tab, setTab] = useState<"summary" | "payment" | "refunds" | "transfers">("summary");
   const [notice, setNotice] = useState("");
   const [lineQuantities, setLineQuantities] = useState<Record<string, Record<string, number>>>({});
@@ -133,6 +134,13 @@ export function AdminOrders() {
   const [stores, setStores] = useState<StoreOption[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [transferForm, setTransferForm] = useState({ store_id: "", type: "deposit" as Transfer["type"], amount: "", memo: "" });
+  const storeReviewOpen = currentTime > 0 && slotConfirmationTimePassed(pickupDate);
+
+  useEffect(() => {
+    setCurrentTime(Date.now());
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -330,6 +338,7 @@ export function AdminOrders() {
 
 
   async function saveInventoryAndPrepareOrders() {
+    if (!slotConfirmationTimePassed(pickupDate)) { setNotice("가게 물량 확인과 주문서 1차 확정은 픽업 전날 오전 11시부터 할 수 있어요."); return; }
     if (!inventoryOrders.length) { setNotice("가게 물량 확인을 기다리는 입금 완료 주문이 없어요."); return; }
     const supabase = createClient();
     if (!supabase) return;
@@ -365,6 +374,7 @@ export function AdminOrders() {
   }
 
   async function saveDraftOrder(order: Order) {
+    if (!slotConfirmationTimePassed(pickupDate)) { setNotice("주문서 검토와 수량 저장은 픽업 전날 오전 11시부터 할 수 있어요."); return; }
     const supabase = createClient();
     if (!supabase) return;
     const editedItems = order.order_items.map((line) => ({ order_item_id: line.id, proposed_quantity: Math.min(line.quantity, Math.max(0, Number(lineQuantities[order.id]?.[line.id] ?? line.proposed_quantity ?? line.quantity))) }));
@@ -398,6 +408,7 @@ export function AdminOrders() {
   }
 
   async function finalizeAllDraftOrders() {
+    if (!slotConfirmationTimePassed(pickupDate)) { setNotice("주문서 전체 확정은 픽업 전날 오전 11시부터 할 수 있어요."); return; }
     const supabase = createClient();
     if (!supabase || !draftOrders.length) return;
     if (unsavedDraftEdits) { setNotice("수량을 수정한 주문의 ‘변경사항 저장’을 먼저 눌러주세요. 전체 환불 주문이 있으면 다른 상품도 다시 배분됩니다."); return; }
@@ -421,7 +432,7 @@ export function AdminOrders() {
     <section className="admin-card"><div className="ops-date-title"><div><h2>픽업 주문 운영</h2><p>{formatPickupDate(pickupDate)} 기준</p></div><button className="ops-refresh" onClick={() => void load()}><RefreshCw size={14}/>새로고침</button></div>
       <div className="ops-date-picker">{dates.filter(({ previous }) => !previous).map(({ day, date }) => <button key={date} className={pickupDate === date ? "selected" : ""} onClick={() => setPickupDate(date)}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
       <label className="ops-history-date"><span>지난 픽업일 조회</span><input type="date" value={pickupDate} onChange={(event) => { const date = event.target.value; if (!date) return; const weekday = new Date(`${date}T00:00:00Z`).getUTCDay(); if (weekday !== 3 && weekday !== 6) { setNotice("픽업 운영일인 수요일 또는 토요일을 선택해 주세요."); return; } setNotice(""); setPickupDate(date); }}/><small>달력에서 과거 수요일·토요일을 선택하면 해당 날짜의 주문과 운영 정보를 볼 수 있어요.</small></label>
-      <p className="admin-help">테스트 모드: 주문·취소·슬롯 확정·최종 수량 처리의 시간 제한을 임시 해제했어요.</p>
+      <p className="admin-help">가게 물량 확인, 주문서 검토와 전체 확정은 픽업 전날 오전 11시부터 가능합니다.</p>
       {notice && <div className="admin-notice">{notice}</div>}
       <div className="ops-tabs"><button className={tab === "summary" ? "selected" : ""} onClick={() => setTab("summary")}><PackageCheck size={14}/>주문 집계</button><button className={tab === "payment" ? "selected" : ""} onClick={() => setTab("payment")}><CircleDollarSign size={14}/>입금 확인</button><button className={tab === "refunds" ? "selected" : ""} onClick={() => setTab("refunds")}>환불 정리</button><button className={tab === "transfers" ? "selected" : ""} onClick={() => setTab("transfers")}>청과점 이체</button></div>
     </section>
@@ -438,7 +449,7 @@ export function AdminOrders() {
           const statusClass = item.type === "slot" && unavailable && slotStatus.includes("세트 가능") ? "inventory-partial" : unavailable ? "inventory-unavailable" : "inventory-available";
           return <article className="inventory-product-row" key={item.id}><div className="inventory-product-info"><b>{item.store} · {item.name}</b><small>{item.specification} · {item.type === "slot" ? `슬롯 ${item.slotSize}상품 단위` : "즉시 구매"} · 주문 {requested}상품</small><strong className={statusClass}>{slotStatus}</strong></div><div className="inventory-product-controls"><select aria-label={`${item.name} 물량 가능 여부`} value={mode} onChange={(event) => setInventoryModes((values) => ({ ...values, [item.id]: event.target.value as "all" | "quantity" | "unavailable" }))}><option value="all">전체 물량 가능 ({requested})</option><option value="quantity">가능한 상품 수 입력</option><option value="unavailable">전체 물량 불가</option></select>{mode === "quantity" && <label><input type="number" min="0" max={requested} inputMode="numeric" value={inventoryQuantities[item.id] ?? ""} onChange={(event) => setInventoryQuantities((values) => ({ ...values, [item.id]: Math.max(0, Number(event.target.value)) }))}/><span>상품</span></label>}</div></article>;
         })}</div> : <div className="admin-empty">물량을 확인할 입금 완료 주문이 없어요.</div>}
-        <button className="ops-action primary" style={{ marginTop: 12 }} disabled={!inventoryOrders.length || savingInventory} onClick={() => void saveInventoryAndPrepareOrders()}><PackageCheck size={15}/>{savingInventory ? "1차 확정 저장 중…" : "물량 저장 · 주문서 1차 확정"}</button>
+        <button className="ops-action primary" style={{ marginTop: 12 }} disabled={!inventoryOrders.length || savingInventory || !storeReviewOpen} onClick={() => void saveInventoryAndPrepareOrders()}><PackageCheck size={15}/>{savingInventory ? "1차 확정 저장 중…" : storeReviewOpen ? "물량 저장 · 주문서 1차 확정" : "픽업 전날 오전 11시부터 가능"}</button>
       </section>
       <section className="admin-card"><h2>청과점별 상품 주문 총량 · 보낼 금액</h2><p className="admin-help">청과점별로 상품 수량을 모아 표시합니다. 금액은 주문에 저장된 판매 단가 × 1차 확인 수량 합계입니다. 입금 확인 전 주문은 금액 합계에서 제외합니다.</p>{loading ? <div className="admin-empty">집계 중…</div> : storeTotals.length ? <div className="ops-summary-list">{storeTotals.map((store) => <article className="supply-summary-row" key={store.id}><div><b>{store.name}</b><span className="store-order-breakdown">{store.products.map((item) => {
         const slotSize = item.slotSize ?? 1;
@@ -461,7 +472,7 @@ export function AdminOrders() {
             </article>;
           })}</div> : <div className="admin-empty">{draftResultTab === "confirmed" ? "확정 가능한 상품이 없습니다." : "확정 불가 상품이 없습니다."}</div>; })()}
           <div className="draft-order-settings"><h3>주문별 설정</h3>{draftOrders.map((order) => <article className="draft-order-setting" key={order.id}><b>{order.order_number} · {order.profiles?.nickname ?? "고객"}</b><label className="ops-refund-reason"><span>환불 사유</span><select aria-label={`${order.order_number} 환불 사유`} value={refundReason[order.id] ?? order.order_items.find((line) => line.refund_reason)?.refund_reason ?? "quantity_unavailable"} onChange={(event) => setRefundReason((values) => ({ ...values, [order.id]: event.target.value }))}><optgroup label="슬롯 모집 결과"><option value="slot_unfilled">1세트 미달 · 모집량 부족</option><option value="slot_boundary">세트 잔여 · 다음 세트 미달</option></optgroup><optgroup label="가게 사정"><option value="quantity_unavailable">가게 수량 확보 불가</option><option value="quality">품질 기준 미충족</option><option value="price_limit">가격 기준 초과</option><option value="urgent_store_unreachable">가게 연락 불가</option></optgroup></select></label><label className="ops-note-field"><span>주문서 비고 <small>환불이 없는 주문에도 입력할 수 있어요. 고객 주문 내역과 주문확인서에 표시됩니다.</small></span><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder="예: 매장 입구 오른쪽에서 픽업해 주세요."/></label><button className="ops-action" onClick={() => void saveDraftOrder(order)}>수량·비고 저장</button></article>)}</div>
-          <button className="ops-action primary" style={{ marginTop: 12 }} disabled={finalizingAll || unsavedDraftEdits} onClick={() => void finalizeAllDraftOrders()}><PackageCheck size={15}/>{finalizingAll ? "전체 확정 처리 중…" : `전체 확정 · 주문확인서 발급 (${draftOrders.length}건)`}</button><p className="admin-help">전체 확정 전 수량 변경사항을 저장해 주세요. 저장된 결과는 상품별 재고 한도와 슬롯 경계를 서버에서도 검증합니다.</p>
+          <button className="ops-action primary" style={{ marginTop: 12 }} disabled={finalizingAll || unsavedDraftEdits || !storeReviewOpen} onClick={() => void finalizeAllDraftOrders()}><PackageCheck size={15}/>{finalizingAll ? "전체 확정 처리 중…" : storeReviewOpen ? `전체 확정 · 주문확인서 발급 (${draftOrders.length}건)` : "픽업 전날 오전 11시부터 가능"}</button><p className="admin-help">전체 확정 전 수량 변경사항을 저장해 주세요. 저장된 결과는 상품별 재고 한도와 슬롯 경계를 서버에서도 검증합니다.</p>
         </> : <div className="admin-empty">아직 검토할 1차 확정 주문이 없습니다. 위에서 상품 물량을 저장해 주세요.</div>}
       </section>
     </> : tab === "payment" ? <section className="admin-card"><h2>주문 목록 · 입금 확인</h2><p className="admin-help">입금 확인부터 픽업 완료까지 이 날짜의 주문을 여기서 확인할 수 있어요. 상품 물량 입력과 주문서 검토·최종 확정은 주문 집계 탭에서 진행합니다.</p>{loading ? <div className="admin-empty">주문을 불러오고 있어요…</div> : paymentOrders.length ? <div className="ops-order-list">{paymentOrders.map((order) => <article className="ops-order-card" key={order.id}>

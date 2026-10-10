@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Banknote, Check, Printer, Ticket, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { formatPickupDate } from "@/lib/pickup-dates";
+import { formatPickupDate, orderDeadlineTimestamp } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
 import { LegalLinks } from "@/components/legal-links";
 import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
@@ -27,6 +27,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [activePass, setActivePass] = useState<{ order: Order; pass: PickupPass } | null>(null);
   const [notice, setNotice] = useState("");
+  const [currentTime, setCurrentTime] = useState(0);
 
   const loadOrders = useCallback(async () => {
     const supabase = createClient();
@@ -45,6 +46,11 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => { void loadOrders(); }, [loadOrders]);
+  useEffect(() => {
+    setCurrentTime(Date.now());
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   async function cancelOrder(order: Order) {
     if (!window.confirm(order.status === "awaiting_payment" ? "입금 전 주문을 취소할까요?" : "관리자에게 취소·환불 요청을 보낼까요?")) return;
     const supabase = createClient();
@@ -77,7 +83,7 @@ export default function OrdersPage() {
         const completedRefunds = order.refunds?.filter((refund) => Boolean(refund.transferred_at)) ?? [];
         const completedRefundAmount = completedRefunds.reduce((sum, refund) => sum + refund.amount, 0);
         const hasCompletedRefund = completedRefunds.length > 0;
-    const cancellationClosed = false;
+        const cancellationClosed = currentTime >= orderDeadlineTimestamp(order.pickup_date);
         const fullyRefunded = ["refunded", "late_payment_refund"].includes(order.status) && hasCompletedRefund;
         const visibleStatus = pendingRefund && ["partially_refunded", "refunded", "late_payment_refund"].includes(order.status) ? "최종 내역 처리 중" : order.status === "refunded" && completedRefunds.length > 0 ? "환불 완료" : completedRefunds.length > 0 && pass ? "확정 · 환불 완료" : statusText[order.status] ?? order.status;
         const refundNote = completedRefunds.find((refund) => refund.message?.trim() && !generatedRefundMessages.has(refund.message.trim()))?.message;
