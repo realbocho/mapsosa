@@ -11,7 +11,7 @@ import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notification
 type OrderItem = { id: string; quantity: number; confirmed_quantity: number | null; refund_quantity: number; unit_price: number; products: { name: string; specification: string; stores: { name: string; address: string } | null } | null };
 type PickupPass = { token: string; issued_at: string; item_snapshot: { name: string; specification: string; quantity: number; confirmation_note?: string }[]; completed_at: string | null };
 type Refund = { id: string; reason: string; amount: number; message: string; transferred_at: string | null };
-type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; updated_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; cancel_reason: string | null; cancellation_requested_at: string | null; profiles: { nickname: string } | null; order_items: OrderItem[]; pickup_passes: PickupPass[] | PickupPass | null; refunds: Refund[] };
+type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; updated_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; cancel_reason: string | null; cancellation_requested_at: string | null; order_source: string; profiles: { nickname: string } | null; assisted_customers: { nickname: string } | null; order_items: OrderItem[]; pickup_passes: PickupPass[] | PickupPass | null; refunds: Refund[] };
 
 function getPickupConfirmationItems(order: Order, pass: PickupPass) {
   const fullyRefunded = ["refunded", "late_payment_refund"].includes(order.status);
@@ -48,7 +48,7 @@ export default function OrdersPage() {
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) { setSignedIn(false); setLoading(false); return; }
     setSignedIn(true);
-    const { data, error } = await supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,created_at,updated_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,cancel_reason,cancellation_requested_at,profiles(nickname),order_items(id,quantity,confirmed_quantity,refund_quantity,unit_price,products(name,specification,stores(name,address))),pickup_passes(token,issued_at,item_snapshot,completed_at),refunds(id,reason,amount,message,transferred_at)").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,created_at,updated_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,cancel_reason,cancellation_requested_at,order_source,profiles(nickname),assisted_customers(nickname),order_items(id,quantity,confirmed_quantity,refund_quantity,unit_price,products(name,specification,stores(name,address))),pickup_passes(token,issued_at,item_snapshot,completed_at),refunds(id,reason,amount,message,transferred_at)").order("created_at", { ascending: false });
     if (error) setNotice(`주문 내역을 불러오지 못했어요: ${error.message}`);
     else if (data) {
       const newest = newestOrderUpdate(data as { updated_at?: string | null }[]);
@@ -108,7 +108,7 @@ export default function OrdersPage() {
           return store?.name ? [[`${store.name}-${store.address}`, store] as const] : [];
         })).values()];
         return <article className="order-card" key={order.id}>
-          <div className="order-card-top"><div><span className="order-date">픽업 {formatPickupDate(order.pickup_date)}</span><b>{order.order_number}</b></div><span className={`order-status ${pass ? "ready" : ""}`}>{visibleStatus}</span></div>
+          <div className="order-card-top"><div><span className="order-date">픽업 {formatPickupDate(order.pickup_date)}</span><b>{order.order_number}</b>{order.order_source === "assisted" && <small>대리 주문 · {order.assisted_customers?.nickname ?? "대리 구매자"}</small>}</div><span className={`order-status ${pass ? "ready" : ""}`}>{visibleStatus}</span></div>
           {pickupStores.length > 0 && <div className="order-pickup-stores"><b>픽업 가게</b>{pickupStores.map((store) => <div key={`${store.name}-${store.address}`}><strong>{store.name}</strong><span>{store.address || "가게 주소가 등록되지 않았어요."}</span></div>)}</div>}
           {confirmationNote && <div className="order-confirmation-note"><b>주문서 비고</b><span>{confirmationNote}</span></div>}
           <div className="order-items">{order.order_items.map((item) => {
@@ -132,7 +132,7 @@ export default function OrdersPage() {
     </div>
     {activePass && <div className="ticket-backdrop" onClick={() => setActivePass(null)}><section className="pickup-ticket" onClick={(event) => event.stopPropagation()}>
       <button className="ticket-close" onClick={() => setActivePass(null)} aria-label="닫기"><X size={18}/></button><span className="section-kicker">MAPSOSA PICKUP</span><h2>주문확인서</h2><b className="ticket-date">{formatPickupDate(activePass.order.pickup_date)}</b><p>픽업 날짜에 청과점에 방문해 이 주문확인서를 보여주고 상품을 픽업하세요.</p>
-      <div className="ticket-profile">{activePass.order.profiles?.nickname ?? "맵소사 이웃"}<small>{activePass.order.order_number}</small></div>
+      <div className="ticket-profile">{activePass.order.order_source === "assisted" ? activePass.order.assisted_customers?.nickname ?? "대리 구매자" : activePass.order.profiles?.nickname ?? "맵소사 이웃"}<small>{activePass.order.order_number}</small></div>
       <div className="ticket-items ticket-confirmed-items">{ticketItems.length > 0 ? ticketItems.map((item) => <article className="ticket-product-row" key={item.id}><b>{item.name}</b><span>{item.specification} × {item.quantity}개 확정</span></article>) : <p className="ticket-empty-items">픽업할 확정 상품이 없습니다.</p>}</div>
       <div className="ticket-store-list">{[...new Map(activePass.order.order_items.map((item) => [item.products?.stores?.name, item.products?.stores?.address])).entries()].filter(([name]) => name).map(([name, address]) => <div key={name}><b>{name}</b><span>{address}</span></div>)}</div>
       {activePass.pass.item_snapshot.find((item) => item.confirmation_note)?.confirmation_note && <div className="ticket-confirmation-note"><b>주문서 비고</b><span>{activePass.pass.item_snapshot.find((item) => item.confirmation_note)?.confirmation_note}</span></div>}
