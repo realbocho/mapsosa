@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type UIEvent } from "react";
-import { ArrowDown, ArrowRight, Check, Clock3, LocateFixed, MapPin, Minus, Plus, ShoppingBag, Sprout, X } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowRight, Check, Clock3, LocateFixed, MapPin, Minus, Plus, ShoppingBag, Sprout, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isProductImageUrl, won, type Product } from "@/lib/products";
 import { StoreMap, type StoreCoordinate, type StoreLocation } from "@/components/store-map";
@@ -476,7 +476,7 @@ export default function Home() {
                 <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, currentSetQuantity / product.slotSize * 100)}%` }}/></div><p className="progress-caption"><b>{currentSetQuantity === 0 && completedSets > 0 ? `${completedSets}세트 완료 · ${completedSets + 1}세트 0개 예약` : `${completedSets + 1}세트 ${currentSetQuantity}개 예약`}</b><span>· {Math.max(0, product.slotSize - currentSetQuantity)}개 더 모이면 확정</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <ProductImage image={product.image} fallback="🍎"/> : product.image}</div></div>
                 <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => void reserveProduct(product)}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
               </article>;
-            })}</div><p className="store-swipe-hint">가게를 좌우로 밀어 다른 가게 보기</p>
+            })}</div><p className="store-swipe-hint"><ArrowLeftRight size={18} strokeWidth={2.5} aria-hidden="true"/><span>가게를 좌우로 밀어 다른 가게 보기</span></p>
           </article>;
           })}</div> : <div className="pickup-store-list">{visibleStoreCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
