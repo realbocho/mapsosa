@@ -279,6 +279,11 @@ export default function Home() {
       }
     }
   }
+  function closeStoreDetails() {
+    storeDetailsScroller.current?.style.removeProperty("height");
+    if (storeBottomSheet.current) storeBottomSheet.current.scrollTop = 0;
+    setOpenStoreId(null);
+  }
   const selectedPickupStore = pickupStores.find((store) => store.id === openStoreId) ?? null;
   function toggleNearbySort() {
     if (nearbySort) {
@@ -447,7 +452,7 @@ export default function Home() {
 
       <section className="pickup-panel" aria-label="픽업일 선택">
         <div><b>어느 날 픽업할까요?</b><span>픽업 날짜를 선택해 주세요</span></div>
-        <div className="day-picker">{pickupOptions.map(({ day, date }) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => { setPickup(day); setOpenStoreId(null); }}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
+        <div className="day-picker">{pickupOptions.map(({ day, date }) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => { setPickup(day); closeStoreDetails(); }}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
         <div className={`pickup-deadline-countdown${deadlineRemaining !== null && deadlineRemaining <= 0 ? " is-closed" : ""}`} role="timer" aria-label={deadlineRemaining !== null && deadlineRemaining <= 0 ? "선택한 픽업일 주문이 마감되었습니다" : `주문 마감까지 ${deadlineCountdown}`}>
           <span>{deadlineRemaining !== null && deadlineRemaining <= 0 ? "선택한 픽업일 주문" : "주문 마감까지"}</span><b>{deadlineCountdown}</b><small>픽업 전날 오전 10시 마감</small>
         </div>
@@ -460,12 +465,12 @@ export default function Home() {
           <div className="mobile-section-heading"><div><span className="section-kicker">{pickup.toUpperCase()}</span><h2>{pickup} 가게</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate}</span></div>
           <div className="store-list-tools"><button type="button" className={`store-sort-button${nearbySort ? " selected" : ""}`} onClick={toggleNearbySort} disabled={locating} aria-pressed={nearbySort}><LocateFixed size={14}/>{locating ? "현재 위치 확인 중…" : nearbySort ? "가까운 순 · 가게명순으로 변경" : "내 위치에서 가까운 순"}</button>{locationMessage && <p role="status">{locationMessage}</p>}</div>
           {selectedPickupStore && <div className="store-map-selected sheet-selected-store"><div><b>{selectedPickupStore.name}</b><span>{selectedPickupStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedPickupStore.address)}`} target="_blank" rel="noreferrer">길찾기 <ArrowRight size={14}/></a></div>}
-          {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : visibleStoreCatalog.length ? openStoreId ? <div className="store-detail-carousel" ref={storeDetailsScroller} onScroll={selectStoreSlide} role="region" aria-label="가게 상세 정보, 좌우로 밀어 가게 변경">{visibleStoreCatalog.map((store) => {
+          {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : visibleStoreCatalog.length ? openStoreId ? <div key="store-details" className="store-detail-carousel" ref={storeDetailsScroller} onScroll={selectStoreSlide} role="region" aria-label="가게 상세 정보, 좌우로 밀어 가게 변경">{visibleStoreCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
           const storeCoordinate = coordinatesByStoreId.get(store.id);
           const distance = nearbySort && userLocation && storeCoordinate ? formatDistance(distanceMeters(userLocation, storeCoordinate)) : null;
           return <article className="pickup-store-card store-detail-slide" key={store.id} aria-current={isOpen ? "true" : undefined}>
-            <div className="pickup-store-summary store-detail-heading"><span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><button type="button" className="pickup-store-chevron" onClick={() => setOpenStoreId(null)}>접기</button></span></div>
+            <div className="pickup-store-summary store-detail-heading"><span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><button type="button" className="pickup-store-chevron" onClick={closeStoreDetails}>접기</button></span></div>
             <div className="store-product-details">{store.products.map((product) => {
               const imageIsUrl = isProductImageUrl(product.image);
               const slotSize = product.slotSize ?? 0;
@@ -478,7 +483,7 @@ export default function Home() {
               </article>;
             })}</div><p className="store-swipe-hint"><ArrowLeftRight size={18} strokeWidth={2.5} aria-hidden="true"/><span>가게를 좌우로 밀어 다른 가게 보기</span></p>
           </article>;
-          })}</div> : <div className="pickup-store-list">{visibleStoreCatalog.map((store) => {
+          })}</div> : <div key="store-list" className="pickup-store-list">{visibleStoreCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
           const preview = store.products.slice(0, 3);
           const storeCoordinate = coordinatesByStoreId.get(store.id);
