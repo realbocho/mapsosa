@@ -254,11 +254,14 @@ export default function Home() {
   }, [coordinatesByStoreId, nearbySort, storeCatalog, userLocation]);
   const [openStoreId, setOpenStoreId] = useState<string | null>(null);
   const storeDetailsScroller = useRef<HTMLDivElement>(null);
+  const storeBottomSheet = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!openStoreId || !storeDetailsScroller.current) return;
     const index = visibleStoreCatalog.findIndex((store) => store.id === openStoreId);
     if (index < 0) return;
     const container = storeDetailsScroller.current;
+    const selectedSlide = container.children[index] as HTMLElement | undefined;
+    if (selectedSlide) container.style.height = `${selectedSlide.offsetHeight}px`;
     const targetLeft = index * container.clientWidth;
     if (Math.abs(container.scrollLeft - targetLeft) > 4) container.scrollTo({ left: targetLeft });
   }, [openStoreId, visibleStoreCatalog]);
@@ -267,7 +270,14 @@ export default function Home() {
     if (!container.clientWidth) return;
     const index = Math.max(0, Math.min(visibleStoreCatalog.length - 1, Math.round(container.scrollLeft / container.clientWidth)));
     const nextStore = visibleStoreCatalog[index];
-    if (nextStore && nextStore.id !== openStoreId) setOpenStoreId(nextStore.id);
+    if (nextStore && nextStore.id !== openStoreId) {
+      setOpenStoreId(nextStore.id);
+      const sheet = storeBottomSheet.current;
+      if (sheet) {
+        const top = container.getBoundingClientRect().top - sheet.getBoundingClientRect().top + sheet.scrollTop - 8;
+        sheet.scrollTo({ top: Math.max(0, top) });
+      }
+    }
   }
   const selectedPickupStore = pickupStores.find((store) => store.id === openStoreId) ?? null;
   function toggleNearbySort() {
@@ -445,17 +455,17 @@ export default function Home() {
 
       <section className="mobile-market map-market" style={sheetHeightPercent === null ? undefined : { "--sheet-height": `${sheetHeightPercent}%` } as CSSProperties}>
         <StoreMap variant="background" stores={pickupStores} apiKey={process.env.NEXT_PUBLIC_KAKAO_MAP_KEY} selectedStoreId={openStoreId} onStoreSelect={setOpenStoreId} onLocationsResolved={setStoreCoordinates}/>
-        <div className="store-bottom-sheet">
+        <div className="store-bottom-sheet" ref={storeBottomSheet}>
           <button type="button" className="store-sheet-handle" role="slider" aria-label="가게 목록 창 크기 조절" aria-orientation="vertical" aria-valuemin={48} aria-valuemax={88} aria-valuenow={Math.round(sheetHeightPercent ?? 66)} aria-valuetext={(sheetHeightPercent ?? 66) >= 80 ? "확장" : (sheetHeightPercent ?? 66) <= 52 ? "접힘" : "기본"} onPointerDown={startSheetDrag} onPointerMove={moveSheetDrag} onPointerUp={finishSheetDrag} onPointerCancel={finishSheetDrag} onKeyDown={handleSheetKeyDown}><span/></button>
           <div className="mobile-section-heading"><div><span className="section-kicker">{pickup.toUpperCase()}</span><h2>{pickup} 가게</h2></div><span className="date-chip"><Clock3 size={13}/>{soonestDate}</span></div>
           <div className="store-list-tools"><button type="button" className={`store-sort-button${nearbySort ? " selected" : ""}`} onClick={toggleNearbySort} disabled={locating} aria-pressed={nearbySort}><LocateFixed size={14}/>{locating ? "현재 위치 확인 중…" : nearbySort ? "가까운 순 · 가게명순으로 변경" : "내 위치에서 가까운 순"}</button>{locationMessage && <p role="status">{locationMessage}</p>}</div>
           {selectedPickupStore && <div className="store-map-selected sheet-selected-store"><div><b>{selectedPickupStore.name}</b><span>{selectedPickupStore.address}</span></div><a href={`https://map.kakao.com/link/search/${encodeURIComponent(selectedPickupStore.address)}`} target="_blank" rel="noreferrer">길찾기 <ArrowRight size={14}/></a></div>}
-          {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : visibleStoreCatalog.length ? openStoreId ? <div className="store-detail-carousel" ref={storeDetailsScroller} onScroll={selectStoreSlide} aria-label="가게 상세 정보, 좌우로 밀어 가게 변경">{visibleStoreCatalog.map((store) => {
+          {loading ? <div className="mobile-empty">가게와 과일을 불러오고 있어요…</div> : visibleStoreCatalog.length ? openStoreId ? <div className="store-detail-carousel" ref={storeDetailsScroller} onScroll={selectStoreSlide} role="region" aria-label="가게 상세 정보, 좌우로 밀어 가게 변경">{visibleStoreCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
           const storeCoordinate = coordinatesByStoreId.get(store.id);
           const distance = nearbySort && userLocation && storeCoordinate ? formatDistance(distanceMeters(userLocation, storeCoordinate)) : null;
           return <article className="pickup-store-card store-detail-slide" key={store.id} aria-current={isOpen ? "true" : undefined}>
-            <div className="pickup-store-summary store-detail-heading"><span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><button type="button" className="pickup-store-chevron" onClick={() => setOpenStoreId(null)}>접기</button></span><span className="store-swipe-hint">가게를 좌우로 밀어 다른 가게 보기</span></div>
+            <div className="pickup-store-summary store-detail-heading"><span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><button type="button" className="pickup-store-chevron" onClick={() => setOpenStoreId(null)}>접기</button></span></div>
             <div className="store-product-details">{store.products.map((product) => {
               const imageIsUrl = isProductImageUrl(product.image);
               const slotSize = product.slotSize ?? 0;
@@ -466,7 +476,7 @@ export default function Home() {
                 <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, currentSetQuantity / product.slotSize * 100)}%` }}/></div><p className="progress-caption"><b>{currentSetQuantity === 0 && completedSets > 0 ? `${completedSets}세트 완료 · ${completedSets + 1}세트 0개 예약` : `${completedSets + 1}세트 ${currentSetQuantity}개 예약`}</b><span>· {Math.max(0, product.slotSize - currentSetQuantity)}개 더 모이면 확정</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <ProductImage image={product.image} fallback="🍎"/> : product.image}</div></div>
                 <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => void reserveProduct(product)}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
               </article>;
-            })}</div>
+            })}</div><p className="store-swipe-hint">가게를 좌우로 밀어 다른 가게 보기</p>
           </article>;
           })}</div> : <div className="pickup-store-list">{visibleStoreCatalog.map((store) => {
           const isOpen = openStoreId === store.id;
