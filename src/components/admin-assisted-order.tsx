@@ -22,7 +22,7 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [phone, setPhone] = useState("");
+  const [buyerNickname, setBuyerNickname] = useState("");
   const [linkedProfile, setLinkedProfile] = useState("");
   const [source, setSource] = useState("");
   const [refundPreference, setRefundPreference] = useState<"partial" | "all_or_nothing">("partial");
@@ -83,7 +83,7 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
     setSaving(true); setNotice("");
     const { data, error } = await supabase.rpc("create_assisted_order", {
       p_pickup_date: pickupDate,
-      p_customer_phone: phone.trim(),
+      p_customer_nickname: buyerNickname.trim(),
       p_linked_profile_id: linkedProfile || null,
       p_acquisition_channel: source || null,
       p_refund_preference: refundPreference,
@@ -97,7 +97,7 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
     if (error) { setNotice(error.message); setNoticeError(true); return; }
     const created = Array.isArray(data) ? data[0] : data;
     setNotice(formatPickupDate(pickupDate) + " 대리 주문 " + (created?.order_number ?? "") + "을 등록했어요. 입금 확인은 주문 · 입금 탭에서 처리해 주세요.");
-    setNoticeError(false); setQuantities({}); setPhone(""); setLinkedProfile(""); setSource("");
+    setNoticeError(false); setQuantities({}); setBuyerNickname(""); setLinkedProfile(""); setSource("");
     setRefundBank(""); setRefundAccount(""); setRefundHolder(""); setDepositorName("");
     onCreated?.();
   }
@@ -110,9 +110,9 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
     </button>
     {notice && <p className={"assisted-order-notice" + (noticeError ? " error" : "")} role="status">{!noticeError && <Check size={14}/>} {notice}</p>}
     {open && <form className="assisted-order-form" onSubmit={(event) => void submit(event)}>
-      <div className="assisted-order-section-title"><b>1. 픽업일과 구매자</b><span>휴대폰 번호로 기존 대리 구매자를 찾아요.</span></div>
+      <div className="assisted-order-section-title"><b>1. 픽업일과 구매자</b><span>닉네임으로 같은 대리 구매자를 구분해요.</span></div>
       <div className="admin-field"><label htmlFor="assisted-pickup">픽업일</label><select id="assisted-pickup" value={pickupDate} onChange={(event) => setPickupDate(event.target.value)} required>{pickDates.map((date) => { const day: PickupDay = new Date(date + "T00:00:00Z").getUTCDay() === 3 ? "수요일" : "토요일"; return <option key={date} value={date}>{formatPickupDate(date) + " · " + day}</option>; })}</select></div>
-      <div className="admin-field"><label htmlFor="assisted-phone">구매자 휴대폰 번호</label><input id="assisted-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="010-0000-0000" required/></div>
+      <div className="admin-field"><label htmlFor="assisted-nickname">구매자 닉네임</label><input id="assisted-nickname" type="text" autoComplete="off" maxLength={40} value={buyerNickname} onChange={(event) => setBuyerNickname(event.target.value)} placeholder="구매자가 사용하는 닉네임" required/><small>같은 닉네임은 같은 구매자로 집계돼요. 동명이인은 구분되는 닉네임을 입력해 주세요.</small></div>
       <div className="admin-field"><label htmlFor="assisted-profile">연결할 맵소사 계정 (선택)</label><select id="assisted-profile" value={linkedProfile} onChange={(event) => setLinkedProfile(event.target.value)}><option value="">연결하지 않음 / 해당 계정 모름</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.nickname + " · 가입 " + new Date(customer.created_at).toLocaleDateString("ko-KR") + " · " + customer.id.slice(0, 6)}</option>)}</select><small>구매자가 기존 맵소사 계정 이용자임을 확인한 경우에만 연결하세요. 연결하면 직접 주문과 대리 주문을 같은 구매자로 분석해요.</small></div>
       <div className="admin-field"><label htmlFor="assisted-source">맵소사를 처음 알게 된 경로 (선택)</label><select id="assisted-source" value={source} onChange={(event) => setSource(event.target.value)}><option value="">확인하지 않음</option>{SOURCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><small>구매자에게 확인한 경우에만 선택해 주세요.</small></div>
 
@@ -122,7 +122,7 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
       <div className="assisted-order-section-title"><b>3. 입금·환불 정보</b><span>고객이 알려준 정보를 입력해 주세요.</span></div>
       <div className="admin-field"><label>상품 부족 시 처리 방식</label><div className="admin-segmented">{([["partial", "가능한 상품은 유지"], ["all_or_nothing", "주문 전체 환불"]] as const).map(([value, label]) => <button key={value} type="button" className={refundPreference === value ? "selected" : ""} onClick={() => setRefundPreference(value)}>{label}</button>)}</div></div>
       <div className="bank-input-grid assisted-bank-grid"><input aria-label="환불 은행명" placeholder="환불 은행명" value={refundBank} onChange={(event) => setRefundBank(event.target.value)} required/><input aria-label="환불 계좌번호" placeholder="환불 계좌번호" inputMode="numeric" value={refundAccount} onChange={(event) => setRefundAccount(event.target.value)} required/><input aria-label="환불 예금주" placeholder="환불 예금주" value={refundHolder} onChange={(event) => setRefundHolder(event.target.value)} required/><input aria-label="입금자명" placeholder="입금자명" value={depositorName} onChange={(event) => setDepositorName(event.target.value)} required/></div>
-      <p className="admin-help">예약 접수 후 입금 확인 전까지는 대기 주문으로 표시됩니다. 연락처는 주문 확인·환불 및 같은 구매자의 재주문 분석에만 사용합니다.</p>
+      <p className="admin-help">예약 접수 후 입금 확인 전까지는 대기 주문으로 표시됩니다. 닉네임은 같은 구매자의 대리 주문을 연결하고 재주문 분석에 사용하며, 운영자 화면에서만 확인할 수 있습니다.</p>
       <div className="assisted-order-total"><span>{itemCount}개 상품</span><b>예상 입금액 {won(total)}원</b></div>
       <button className="admin-save" type="submit" disabled={saving || loading || !itemCount}>{saving ? "주문 등록 중…" : "대리 주문 접수"}</button>
     </form>}
