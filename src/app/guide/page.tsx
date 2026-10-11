@@ -33,7 +33,7 @@ export default function GuidePage() {
 
       <section className="guide-info-card guide-info-soft">
         <div className="guide-card-title"><Ticket size={17}/><h2>주문확인서는 어디서 보나요?</h2></div>
-        <p>홈 화면의 <b>내 주문</b>에서 확정 상태와 변경된 상품 수량을 확인할 수 있어요. 확정 주문서 보기 버튼으로 열고, 필요하면 인쇄할 수 있어요. 변경 사항이 생기면 홈의 내 주문 옆에 빨간 점이 표시돼요.</p>
+        <p>픽업일 전날 오후에 상품이 최종 확정되면 주문확인서가 발급돼요. 홈 화면의 <b>내 주문</b>에서 확인서를 열고, 픽업할 때 청과점에 보여주세요. 필요하면 인쇄할 수 있고, 변경 사항이 생기면 홈의 내 주문 옆에 빨간 점이 표시돼요.</p>
       </section>
 
       <section className="guide-info-card guide-info-soft">
