@@ -10,6 +10,8 @@ type Line = { id: string; quantity: number; proposed_quantity: number | null; co
 type Refund = { id: string; reason: string; amount: number; message: string; transferred_at: string | null };
 type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; inventory_reviewed_at: string | null; confirmation_note: string; created_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; refund_preference: "all_or_nothing" | "partial"; cancellation_requested_at: string | null; order_source: string; profiles: { nickname: string } | null; assisted_customers: { nickname: string } | null; order_items: Line[]; refunds: Refund[] };
 type StoreOption = { id: string; name: string };
+type CampaignTier = { minimum_slots: number; unit_price: number };
+type CampaignProduct = { product_id: string; store_id: string; store_name: string; name: string; specification: string; tiers: CampaignTier[] };
 type Transfer = { id: string; pickup_date: string | null; type: "deposit" | "sales" | "recovery"; amount: number; transferred_at: string | null; memo: string; stores: { name: string } | null };
 type ProductTotal = { id: string; type: "slot" | "instant"; slotSize: number | null; name: string; specification: string; storeId: string; store: string; requested: number; paid: number; unpaid: number; confirmed: number; amount: number; amountReady: boolean; slotCalculated: boolean };
 
@@ -121,6 +123,7 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
   const dates = useMemo(() => upcomingDates(), []);
   const [pickupDate, setPickupDate] = useState(() => dates.find((entry) => !entry.previous)?.date ?? dates[0].date);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [campaignProducts, setCampaignProducts] = useState<CampaignProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [tab, setTab] = useState<"summary" | "payment" | "refunds" | "transfers">("summary");
@@ -151,16 +154,19 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
     const supabase = createClient();
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
-    const [ordersResult, storesResult, transfersResult, inventoryResult] = await Promise.all([
+    const [ordersResult, storesResult, transfersResult, inventoryResult, campaignResult] = await Promise.all([
       supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,inventory_reviewed_at,confirmation_note,created_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,refund_preference,cancellation_requested_at,order_source,profiles(nickname),assisted_customers(nickname),order_items(id,quantity,proposed_quantity,confirmed_quantity,refund_quantity,refund_reason,unit_price,final_unit_price,products(id,name,specification,type,slot_size,stores(id,name))),refunds(id,reason,amount,message,transferred_at)").eq("pickup_date", pickupDate).order("created_at", { ascending: true }),
       supabase.from("stores").select("id,name").order("name"),
       supabase.from("store_transfers").select("id,pickup_date,type,amount,transferred_at,memo,stores(name)").eq("pickup_date", pickupDate).order("created_at", { ascending: false }),
       supabase.from("pickup_product_inventory").select("product_id,available_quantity").eq("pickup_date", pickupDate),
+      supabase.rpc("weekly_campaign_catalog", { p_pickup_date: pickupDate }),
     ]);
     const { data, error } = ordersResult;
     if (error) setNotice(`주문을 불러오지 못했어요: ${error.message}`);
+    if (campaignResult.error) setNotice(`공동구매 가격 구간을 불러오지 못했어요: ${campaignResult.error.message}`);
     const loaded = (data ?? []) as unknown as Order[];
     setOrders(loaded);
+    setCampaignProducts(((campaignResult.data ?? []) as unknown as (Omit<CampaignProduct, "tiers"> & { tiers: CampaignTier[] | null })[]).map((product) => ({ ...product, tiers: product.tiers ?? [] })));
     setConfirmationNotes((previous) => {
       const next = { ...previous };
       for (const order of loaded) next[order.id] = order.confirmation_note ?? "";
@@ -277,6 +283,32 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
     const key = line.products?.id ?? line.id;
     const total = refundProductTotals.get(key) ?? { store: line.products?.stores?.name ?? "가게 미지정", name: line.products?.name ?? "상품", quantity: 0, amount: 0 };
     total.quantity += line.refundQuantity; total.amount += line.refundAmount; refundProductTotals.set(key, total);
+  }
+  const campaignProductIds = new Set(campaignProducts.map((product) => product.product_id));
+  const campaignEligibleOrders = orders.filter((order) => Boolean(order.paid_at) && !order.cancellation_requested_at && ["paid_recruiting", "slot_confirmed", "store_checking"].includes(order.status) && order.order_items.some((line) => line.products?.id && campaignProductIds.has(line.products.id)));
+  const campaignOrders = orders.filter((order) => Boolean(order.paid_at) && !order.cancellation_requested_at && !["cancelled_unpaid", "late_payment_refund", "refunded"].includes(order.status) && order.order_items.some((line) => line.products?.id && campaignProductIds.has(line.products.id)));
+  const campaignTotals = campaignProducts.map((product) => {
+    const quantity = campaignOrders.reduce((sum, order) => sum + order.order_items.filter((line) => line.products?.id === product.product_id).reduce((lineSum, line) => lineSum + (line.confirmed_quantity ?? Math.max(0, line.quantity - line.refund_quantity)), 0), 0);
+    const tier = [...product.tiers].reverse().find((entry) => entry.minimum_slots <= quantity);
+    const nextTier = tier ? product.tiers.find((entry) => entry.minimum_slots > tier.minimum_slots) : undefined;
+    const tierLabel = tier ? `${tier.minimum_slots}${nextTier ? `~${nextTier.minimum_slots - 1}` : "개 이상"} 슬롯 가격대` : "첫 가격 구간 전";
+    return { ...product, quantity, tier, tierLabel, amount: quantity * (tier?.unit_price ?? 0) };
+  }).filter((product) => product.quantity > 0).sort((a, b) => a.store_name.localeCompare(b.store_name));
+  const campaignAmount = campaignTotals.reduce((sum, product) => sum + product.amount, 0);
+
+  async function finalizeWeeklyCampaignOrders() {
+    if (!slotConfirmationTimePassed(pickupDate)) { setNotice("주문서 발급은 픽업 전날 오전 11시부터 할 수 있어요."); return; }
+    const supabase = createClient();
+    if (!supabase || !campaignEligibleOrders.length) return;
+    if (!window.confirm(`${campaignEligibleOrders.length}건의 입금 확인 주문을 전량 확정하고, 가게별 최종 가격으로 주문확인서를 발급할까요?`)) return;
+    setFinalizingAll(true);
+    setNotice("");
+    const notes = Object.fromEntries(campaignEligibleOrders.map((order) => [order.id, (confirmationNotes[order.id] ?? order.confirmation_note ?? "").trim().slice(0, 500)]));
+    const { error } = await supabase.rpc("finalize_weekly_campaign_orders", { p_pickup_date: pickupDate, p_confirmation_notes: notes });
+    setFinalizingAll(false);
+    if (error) { setNotice(`주문 확정과 확인서 발급을 완료하지 못했어요: ${error.message}`); return; }
+    setNotice(`${campaignEligibleOrders.length}건의 주문을 확정하고 최종 가격을 반영한 주문확인서를 발급했어요.`);
+    await load();
   }
 
   async function updateOrder(order: Order, values: Record<string, unknown>) {
@@ -437,12 +469,21 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
     <section className="admin-card"><div className="ops-date-title"><div><h2>픽업 주문 운영</h2><p>{formatPickupDate(pickupDate)} 기준</p></div><button className="ops-refresh" onClick={() => void load()}><RefreshCw size={14}/>새로고침</button></div>
       <div className="ops-date-picker">{dates.filter(({ previous }) => !previous).map(({ day, date }) => <button key={date} className={pickupDate === date ? "selected" : ""} onClick={() => setPickupDate(date)}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
       <label className="ops-history-date"><span>지난 픽업일 조회</span><input type="date" value={pickupDate} onChange={(event) => { const date = event.target.value; if (!date) return; const weekday = new Date(`${date}T00:00:00Z`).getUTCDay(); if (weekday !== 3 && weekday !== 6) { setNotice("과거 주문 기록은 수요일·토요일 날짜로 조회할 수 있어요."); return; } setNotice(""); setPickupDate(date); }}/><small>앞으로 운영은 매주 토요일이며, 달력에서 과거 수요일·토요일 기록을 조회할 수 있어요.</small></label>
-      <p className="admin-help">가게 물량 확인, 주문서 검토와 전체 확정은 픽업 전날 오전 11시부터 가능합니다.</p>
+      <p className="admin-help">입금 확인 수량을 가게별 가격 구간에 반영하고, 픽업 전날 오전 11시부터 주문서를 발급할 수 있어요.</p>
       {notice && <div className="admin-notice">{notice}</div>}
       <div className="ops-tabs"><button className={tab === "summary" ? "selected" : ""} onClick={() => setTab("summary")}><PackageCheck size={14}/>주문 집계</button><button className={tab === "payment" ? "selected" : ""} onClick={() => setTab("payment")}><CircleDollarSign size={14}/>입금 확인</button><button className={tab === "refunds" ? "selected" : ""} onClick={() => setTab("refunds")}>환불 정리</button><button className={tab === "transfers" ? "selected" : ""} onClick={() => setTab("transfers")}>청과점 이체</button></div>
     </section>
     {tab === "summary" ? <>
       <div className="ops-metrics"><article><span>유효 주문</span><b>{activeOrders.length}건</b><small>{won(activeOrders.reduce((sum, order) => sum + order.total, 0))}원</small></article><article><span>입금 확인</span><b>{paidOrders.filter((order) => activeStatuses.has(order.status)).length}건</b><small>{won(paidOrders.filter((order) => activeStatuses.has(order.status)).reduce((sum, order) => sum + order.total, 0))}원</small></article><article><span>입금 대기</span><b>{orders.filter((order) => order.status === "awaiting_payment").length}건</b><small>{won(orders.filter((order) => order.status === "awaiting_payment").reduce((sum, order) => sum + order.total, 0))}원</small></article></div>
+      <section className="admin-card weekly-close-card"><div className="ops-date-title"><div><h2>공동구매 가격·주문 집계</h2><p>입금 확인 수량으로 가게별 가격 구간을 계산합니다.</p></div><span className="inventory-count">{campaignEligibleOrders.length}건 처리 대기</span></div>
+        {campaignTotals.length ? <><div className="weekly-close-list">{campaignTotals.map((product) => <article className="weekly-close-row" key={product.product_id}><div><b>{product.store_name} · {product.name}</b><small>{product.specification} · 총 {product.quantity}개</small></div><div className="weekly-close-price">{product.tier ? <><span>{product.tierLabel} · {won(product.tier.unit_price)}원 / 개</span><b>{won(product.amount)}원</b></> : <><span>첫 가격 구간 전</span><b>가격 확인 필요</b></>}</div></article>)}</div>
+          <div className="weekly-close-total"><span>현재 최종가 합계</span><b>{won(campaignAmount)}원</b></div>
+          <p className="admin-help">입금 확인된 상품 수량을 그대로 확정합니다. 취소·미입금 취소 주문은 제외하고, 최종 가격 구간에 따른 차액은 환불 대상으로 표시합니다.</p>
+          {campaignEligibleOrders.map((order) => <details className="weekly-close-note" key={order.id}><summary>{order.order_number} · 주문서 비고 (선택)</summary><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder="주문확인서에 표시할 안내가 있으면 적어 주세요."/></details>)}
+          <button className="ops-action primary weekly-close-button" disabled={finalizingAll || !campaignEligibleOrders.length || !storeReviewOpen || campaignTotals.some((product) => !product.tier)} onClick={() => void finalizeWeeklyCampaignOrders()}><PackageCheck size={15}/>{finalizingAll ? "주문서 발급 중…" : storeReviewOpen ? `전체 주문 확정 · 주문서 발급 (${campaignEligibleOrders.length}건)` : "픽업 전날 오전 11시부터 가능"}</button>
+        </> : <div className="admin-empty">집계할 입금 완료 공동구매 주문이 없습니다.</div>}
+      </section>
+      <details className="weekly-legacy-archive"><summary>이전 물량 확인·1차 확정·환불 재배분 방식 펼쳐보기</summary>
       <section className="admin-card inventory-review"><div className="ops-date-title"><div><h2>가게 물량 확인 · 상품별 1차 확정</h2><p>입금 완료 상품을 등록 순서대로 배분합니다.</p></div><span className="inventory-count">{inventoryOrders.length}건</span></div>
         <p className="admin-help">가능 수량은 과일 낱개 수가 아니라 등록된 상품 단위로 입력해 주세요. 예: 사과 2과 1상품을 3상품 준비할 수 있으면 3을 입력합니다. 슬롯 상품은 슬롯 단위 경계를 지키며 배분하고, 1세트도 채우지 못하면 구매 불가로 표시합니다.</p>
         {productTotals.filter((item) => inventoryOrders.some((order) => order.order_items.some((line) => line.products?.id === item.id))).length ? <div className="inventory-product-list">{productTotals.filter((item) => inventoryOrders.some((order) => order.order_items.some((line) => line.products?.id === item.id))).map((item) => {
@@ -480,7 +521,8 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
           <button className="ops-action primary" style={{ marginTop: 12 }} disabled={finalizingAll || unsavedDraftEdits || !storeReviewOpen} onClick={() => void finalizeAllDraftOrders()}><PackageCheck size={15}/>{finalizingAll ? "전체 확정 처리 중…" : storeReviewOpen ? `전체 확정 · 주문확인서 발급 (${draftOrders.length}건)` : "픽업 전날 오전 11시부터 가능"}</button><p className="admin-help">전체 확정 전 수량 변경사항을 저장해 주세요. 저장된 결과는 상품별 재고 한도와 슬롯 경계를 서버에서도 검증합니다.</p>
         </> : <div className="admin-empty">아직 검토할 1차 확정 주문이 없습니다. 위에서 상품 물량을 저장해 주세요.</div>}
       </section>
-    </> : tab === "payment" ? <section className="admin-card"><h2>주문 목록 · 입금 확인</h2><p className="admin-help">입금 확인부터 픽업 완료까지 이 날짜의 주문을 여기서 확인할 수 있어요. 상품 물량 입력과 주문서 검토·최종 확정은 주문 집계 탭에서 진행합니다.</p>{loading ? <div className="admin-empty">주문을 불러오고 있어요…</div> : paymentOrders.length ? <div className="ops-order-list">{paymentOrders.map((order) => <article className="ops-order-card" key={order.id}>
+      </details>
+    </> : tab === "payment" ? <section className="admin-card"><h2>주문 목록 · 입금 확인</h2><p className="admin-help">입금 확인부터 픽업 완료까지 이 날짜의 주문을 여기서 확인할 수 있어요. 가격 구간 확인과 주문확인서 발급은 주문 집계 탭에서 진행합니다.</p>{loading ? <div className="admin-empty">주문을 불러오고 있어요…</div> : paymentOrders.length ? <div className="ops-order-list">{paymentOrders.map((order) => <article className="ops-order-card" key={order.id}>
       <div className="ops-order-head"><div><b>{order.order_number}{order.order_source === "assisted" && <span className="assisted-order-badge">대리 주문</span>}</b><small>{order.order_source === "assisted" ? `구매자 ${order.assisted_customers?.nickname ?? "닉네임 미입력"}` : order.profiles?.nickname ?? "고객"} · {order.depositor_name} · {new Date(order.created_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></div><span className={`order-status ${order.paid_at ? "ready" : ""}`}>{statusText[order.status] ?? order.status}</span></div>
       <div className="ops-order-lines">{order.order_items.map((line) => <div key={line.id}><span>{line.products?.name ?? "상품"} · {line.quantity}개</span><small>{line.products?.stores?.name ?? "가게 미지정"}</small></div>)}</div>
       <div className="ops-payment-row"><span>입금자 <b>{order.depositor_name}</b></span><strong>{won(order.total)}원</strong></div>
