@@ -69,19 +69,22 @@ export function AdminWeeklyCampaign({ stores }: { stores: StoreOption[] }) {
   }
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const supabase = createClient();
-    if (!supabase) return;
-    const participating = stores.filter((store) => store.active && !store.closed_weekdays.includes(6) && setupFor(store.id).enabled);
-    if (!participating.length) { setNotice("참여 가게를 한 곳 이상 선택해 주세요."); setNoticeError(true); return; }
-    const payload = participating.map((store) => {
-      const tiers = setupFor(store.id).tiers.map((tier) => ({ minimum_slots: Number(tier.minimum_slots), unit_price: Number(tier.unit_price) })).sort((a, b) => a.minimum_slots - b.minimum_slots);
-      if (!tiers.length || tiers.some((tier) => !Number.isInteger(tier.minimum_slots) || tier.minimum_slots < 1 || !Number.isInteger(tier.unit_price) || tier.unit_price < 0)) throw new Error(`${store.name}의 가격 구간을 확인해 주세요.`);
-      if (tiers[0].minimum_slots !== 1) throw new Error(`${store.name}의 첫 가격 구간은 1슬롯부터 시작해야 해요.`);
-      if (tiers.some((tier, index) => index > 0 && (tier.minimum_slots <= tiers[index - 1].minimum_slots || tier.unit_price > tiers[index - 1].unit_price))) throw new Error(`${store.name}은 슬롯 기준을 오름차순으로, 단가는 같거나 낮아지게 입력해 주세요.`);
-      return { store_id: store.id, tiers };
-    });
-    setSaving(true); setNotice("");
+    setSaving(true);
+    setNotice("");
+    setNoticeError(false);
     try {
+      const supabase = createClient();
+      if (!supabase) throw new Error("Supabase 연결 설정을 확인해 주세요.");
+      if (!name.trim() || !specification.trim()) throw new Error("품목명과 상품 규격을 입력해 주세요.");
+      const participating = stores.filter((store) => store.active && !store.closed_weekdays.includes(6) && setupFor(store.id).enabled);
+      if (!participating.length) throw new Error("참여 가게를 한 곳 이상 선택해 주세요.");
+      const payload = participating.map((store) => {
+        const tiers = setupFor(store.id).tiers.map((tier) => ({ minimum_slots: Number(tier.minimum_slots), unit_price: Number(tier.unit_price) })).sort((a, b) => a.minimum_slots - b.minimum_slots);
+        if (!tiers.length || tiers.some((tier) => !Number.isInteger(tier.minimum_slots) || tier.minimum_slots < 1 || !Number.isInteger(tier.unit_price) || tier.unit_price < 0)) throw new Error(`${store.name}의 가격 구간을 확인해 주세요.`);
+        if (tiers[0].minimum_slots !== 1) throw new Error(`${store.name}의 첫 가격 구간은 1슬롯부터 시작해야 해요.`);
+        if (tiers.some((tier, index) => index > 0 && (tier.minimum_slots <= tiers[index - 1].minimum_slots || tier.unit_price > tiers[index - 1].unit_price))) throw new Error(`${store.name}은 슬롯 기준을 오름차순으로, 단가는 같거나 낮아지게 입력해 주세요.`);
+        return { store_id: store.id, tiers };
+      });
       const { error } = await supabase.rpc("save_weekly_campaign", {
         p_pickup_date: pickupDate, p_name: name.trim(), p_specification: specification.trim(),
         p_description: description.trim(), p_image_url: imageUrl.trim() || image, p_stores: payload,
@@ -120,7 +123,7 @@ export function AdminWeeklyCampaign({ stores }: { stores: StoreOption[] }) {
           }) : <div className="admin-empty">먼저 참여 가게를 등록해 주세요.</div>}
         </div>
         <aside className="weekly-campaign-tip"><b>입금·환불 기준</b><span>주문 시점의 가게별 가격으로 입금 안내를 합니다. 마감 후 더 낮은 가격 구간에 도달하면 확정 주문별 차액을 환불 대상으로 표시하며, 운영자가 직접 이체합니다.</span></aside>
-        <button className="admin-save weekly-campaign-save" type="submit" disabled={saving || !stores.some((store) => store.active && !store.closed_weekdays.includes(6))}>{saving ? "공동구매 설정 저장 중…" : `${formatPickupDate(pickupDate)} 상품 저장`}</button>
+        <button className="admin-save weekly-campaign-save" type="submit" disabled={saving || loading || !stores.some((store) => store.active && !store.closed_weekdays.includes(6))}>{saving ? "공동구매 설정 저장 중…" : `${formatPickupDate(pickupDate)} 상품 저장`}</button>
       </>}
     </form>
   </section>;
