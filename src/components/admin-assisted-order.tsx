@@ -28,7 +28,6 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
   const [buyerNickname, setBuyerNickname] = useState("");
   const [linkedProfile, setLinkedProfile] = useState("");
   const [source, setSource] = useState("");
-  const [refundPreference, setRefundPreference] = useState<"partial" | "all_or_nothing">("partial");
   const [refundBank, setRefundBank] = useState("");
   const [refundAccount, setRefundAccount] = useState("");
   const [refundHolder, setRefundHolder] = useState("");
@@ -97,7 +96,7 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
       p_customer_nickname: buyerNickname.trim(),
       p_linked_profile_id: linkedProfile || null,
       p_acquisition_channel: source || null,
-      p_refund_preference: refundPreference,
+      p_refund_preference: "partial",
       p_refund_bank: refundBank.trim(),
       p_refund_account: refundAccount.trim(),
       p_refund_account_holder: refundHolder.trim(),
@@ -131,7 +130,6 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
       {loading ? <div className="admin-empty">상품을 불러오고 있어요…</div> : groupedProducts.length ? <div className="assisted-product-groups">{groupedProducts.map((group) => <div className="assisted-product-group" key={group.storeId}><h3>{group.storeName}</h3>{group.products.map((product) => { const nextTier = product.tiers.find((tier, index) => index > 0 && tier.minimum_slots > product.applied_quantity); return <div className="assisted-product-row" key={product.id}><div><b>{product.name}</b><small>{product.specification} · {won(unitPrice(product))}원 / 상품{nextTier ? ` · 다음 가격까지 ${Math.max(0, nextTier.minimum_slots - product.applied_quantity)}슬롯` : " · 현재 최저 가격 구간"}</small></div><div className="assisted-product-qty"><button type="button" onClick={() => changeQuantity(product.id, -1)} aria-label={product.name + " 수량 줄이기"}><Minus size={14}/></button><span>{quantities[product.id] ?? 0}</span><button type="button" onClick={() => changeQuantity(product.id, 1)} aria-label={product.name + " 수량 늘리기"}><Plus size={14}/></button></div></div>;})}</div>)}</div> : <div className="admin-empty">선택한 토요일에 등록된 공동구매 상품이 없어요. 상품 탭에서 먼저 등록해 주세요.</div>}
 
       <div className="assisted-order-section-title"><b>3. 입금·환불 정보</b><span>고객이 알려준 정보를 입력해 주세요.</span></div>
-      <div className="admin-field"><label>상품 부족 시 처리 방식</label><div className="admin-segmented">{([["partial", "가능한 상품은 유지"], ["all_or_nothing", "주문 전체 환불"]] as const).map(([value, label]) => <button key={value} type="button" className={refundPreference === value ? "selected" : ""} onClick={() => setRefundPreference(value)}>{label}</button>)}</div></div>
       <div className="bank-input-grid assisted-bank-grid"><input aria-label="환불 은행명" placeholder="환불 은행명" value={refundBank} onChange={(event) => setRefundBank(event.target.value)} required/><input aria-label="환불 계좌번호" placeholder="환불 계좌번호" inputMode="numeric" value={refundAccount} onChange={(event) => setRefundAccount(event.target.value)} required/><input aria-label="환불 예금주" placeholder="환불 예금주" value={refundHolder} onChange={(event) => setRefundHolder(event.target.value)} required/><input aria-label="입금자명" placeholder="입금자명" value={depositorName} onChange={(event) => setDepositorName(event.target.value)} required/></div>
       <p className="admin-help">예약 접수 후 입금 확인 전까지는 대기 주문으로 표시됩니다. 닉네임은 같은 구매자의 대리 주문을 연결하고 재주문 분석에 사용하며, 운영자 화면에서만 확인할 수 있습니다.</p>
       <div className="assisted-order-total"><span>{itemCount}개 상품</span><b>예상 입금액 {won(total)}원</b></div>

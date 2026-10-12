@@ -54,7 +54,6 @@ export default function Home() {
   const [confirmedPickupDate, setConfirmedPickupDate] = useState("");
   const [confirmedPickupStores, setConfirmedPickupStores] = useState<{ name: string; address: string }[]>([]);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [refund, setRefund] = useState<"all" | "partial">("partial");
   const [refundBank, setRefundBank] = useState("");
   const [refundAccount, setRefundAccount] = useState("");
   const [refundHolder, setRefundHolder] = useState("");
@@ -440,7 +439,7 @@ export default function Home() {
     try {
       const { data, error } = await supabase.rpc("create_order", {
         p_pickup_date: pickupDate,
-        p_refund_preference: refund === "partial" ? "partial" : "all_or_nothing",
+        p_refund_preference: "partial",
         p_refund_bank: refundBank,
         p_refund_account: refundAccount,
         p_refund_account_holder: refundHolder,
@@ -531,7 +530,6 @@ export default function Home() {
 
     {checkout && <div className="mobile-modal-backdrop" onClick={() => setCheckout(false)}><section className="mobile-checkout" onClick={(event) => event.stopPropagation()}><div className="checkout-title"><div><span className="section-kicker">YOUR RESERVATION</span><h2>예약 목록</h2></div><button className="close-button" onClick={() => setCheckout(false)} aria-label="닫기"><X size={20}/></button></div>
       <div className="mobile-cart-items">{reservationCartGroups.map((group) => <section className="cart-store-group" key={group.id}><header><b>{group.name}</b><span>{group.address}</span></header><div>{group.products.map((product) => <div className="mobile-cart-item" key={product.id}><span className="cart-produce"><ProductImage image={product.image} fallback={product.image}/></span><div className="cart-item-copy"><b>{product.name}</b><small>{product.variety} · {won(priceForQuantity(product, cart[product.id]))}원 / 상품</small></div><div className="mobile-quantity"><button onClick={() => changeQuantity(product.id, -1)} aria-label="수량 줄이기"><Minus size={15}/></button><span>{cart[product.id]}</span><button onClick={() => changeQuantity(product.id, 1)} aria-label="수량 늘리기"><Plus size={15}/></button></div></div>)}</div></section>)}</div>
-      <div className="refund-options"><h3>상품이 부족하면 어떻게 할까요?</h3><button className={refund === "partial" ? "refund-selected" : ""} onClick={() => setRefund("partial")}><span className="radio-mark"/><span><b>가능한 상품만 받을게요</b><small>부족한 수량만 환불돼요.</small></span></button><button className={refund === "all" ? "refund-selected" : ""} onClick={() => setRefund("all")}><span className="radio-mark"/><span><b>전체 환불받을게요</b><small>일부라도 준비되지 않으면 전체 환불돼요.</small></span></button></div>
       <div className="mobile-bank-form"><h3>환불 계좌와 입금자 정보</h3><div className="bank-input-grid"><input placeholder="은행명" aria-label="환불 은행명" value={refundBank} onChange={(e) => setRefundBank(e.target.value)}/><input placeholder="계좌번호" aria-label="환불 계좌번호" value={refundAccount} onChange={(e) => setRefundAccount(e.target.value)}/><input placeholder="예금주" aria-label="예금주" value={refundHolder} onChange={(e) => setRefundHolder(e.target.value)}/><input placeholder="입금자명" aria-label="입금자명" value={depositorName} onChange={(e) => setDepositorName(e.target.value)}/></div><p>픽업은 {soonestDate}이며, 주문은 픽업일 전날 오전 10시에 마감됩니다.</p></div>
       <div className="pickup-disposal-notice" role="note"><b>픽업 당일 꼭 수령해 주세요</b><span>당일 찾아가지 않은 상품은 폐기 처리되며, 환불되지 않습니다.</span></div>
       <div className="saved-order-details"><span>{orderDetailsSaved ? "저장된 정보가 다음 주문에 자동으로 입력돼요." : "다음 주문에 다시 쓰려면 정보를 저장해 주세요."}</span><div><button type="button" disabled={savingOrderDetails} onClick={() => void saveOrderDetails()}>{savingOrderDetails ? "저장 중…" : orderDetailsSaved ? "정보 업데이트" : "정보 저장"}</button>{orderDetailsSaved && <button type="button" className="saved-details-delete" disabled={savingOrderDetails} onClick={() => void removeSavedOrderDetails()}>저장 정보 삭제</button>}</div></div>
