@@ -295,6 +295,24 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
     return { ...product, quantity, tier, tierLabel, amount: quantity * (tier?.unit_price ?? 0) };
   }).filter((product) => product.quantity > 0).sort((a, b) => a.store_name.localeCompare(b.store_name));
   const campaignAmount = campaignTotals.reduce((sum, product) => sum + product.amount, 0);
+  const campaignTotalsByProduct = new Map(campaignTotals.map((product) => [product.product_id, product]));
+  const campaignOrderAdjustments = new Map(campaignEligibleOrders.map((order) => {
+    const refundLines = order.order_items.flatMap((line) => {
+      const product = line.products?.id ? campaignTotalsByProduct.get(line.products.id) : undefined;
+      if (!product?.tier || !line.products || line.quantity <= 0) return [];
+      const finalUnitPrice = Math.min(line.unit_price, product.tier.unit_price);
+      const refundAmount = Math.max(0, line.unit_price - finalUnitPrice) * line.quantity;
+      if (refundAmount <= 0) return [];
+      const paidAmount = line.unit_price * line.quantity;
+      const finalAmount = finalUnitPrice * line.quantity;
+      return [`${line.products.name}: 구매 당시 ${won(line.unit_price)}원/개 × ${line.quantity}개 = ${won(paidAmount)}원, 최종가 ${won(finalUnitPrice)}원/개 × ${line.quantity}개 = ${won(finalAmount)}원, 차액 ${won(refundAmount)}원 환불 예정`];
+    });
+    const refundAmount = order.order_items.reduce((sum, line) => {
+      const product = line.products?.id ? campaignTotalsByProduct.get(line.products.id) : undefined;
+      return sum + (product?.tier ? Math.max(0, line.unit_price - Math.min(line.unit_price, product.tier.unit_price)) * line.quantity : 0);
+    }, 0);
+    return [order.id, { refundAmount, note: refundLines.join("\n") }] as const;
+  }));
 
   async function finalizeWeeklyCampaignOrders() {
     if (!slotConfirmationTimePassed(pickupDate)) { setNotice("주문서 발급은 픽업 전날 오전 11시부터 할 수 있어요."); return; }
@@ -479,7 +497,7 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
         {campaignTotals.length ? <><div className="weekly-close-list">{campaignTotals.map((product) => <article className="weekly-close-row" key={product.product_id}><div><b>{product.store_name} · {product.name}</b><small>{product.specification} · 총 {product.quantity}개</small></div><div className="weekly-close-price">{product.tier ? <><span>{product.tierLabel} · {won(product.tier.unit_price)}원 / 개</span><b>{won(product.amount)}원</b></> : <><span>첫 가격 구간 전</span><b>가격 확인 필요</b></>}</div></article>)}</div>
           <div className="weekly-close-total"><span>현재 최종가 합계</span><b>{won(campaignAmount)}원</b></div>
           <p className="admin-help">입금 확인된 상품 수량을 그대로 확정합니다. 취소·미입금 취소 주문은 제외하고, 최종 가격 구간에 따른 차액은 환불 대상으로 표시합니다.</p>
-          {campaignEligibleOrders.map((order) => <details className="weekly-close-note" key={order.id}><summary>{order.order_number} · 주문서 비고 (선택)</summary><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder="주문확인서에 표시할 안내가 있으면 적어 주세요."/></details>)}
+          <div className="weekly-close-orders">{campaignEligibleOrders.map((order) => { const adjustment = campaignOrderAdjustments.get(order.id); return <article className={`weekly-close-order${adjustment?.refundAmount ? " has-refund" : ""}`} key={order.id}><div className="weekly-close-order-heading"><b>{order.order_number}</b>{adjustment?.refundAmount ? <span>차액 환불 예정 · {won(adjustment.refundAmount)}원</span> : <small>가격 차액 환불 없음</small>}</div>{adjustment?.refundAmount ? <div className="weekly-close-refund-note"><b>관리자 자동 비고</b><span>{adjustment.note}</span></div> : null}<details className="weekly-close-note"><summary>주문확인서 비고 · 고객에게 표시 (선택)</summary><textarea value={confirmationNotes[order.id] ?? ""} onChange={(event) => setConfirmationNotes((values) => ({ ...values, [order.id]: event.target.value }))} maxLength={500} placeholder="고객에게 안내할 내용만 적어 주세요."/></details></article>; })}</div>
           <button className="ops-action primary weekly-close-button" disabled={finalizingAll || !campaignEligibleOrders.length || !storeReviewOpen || campaignTotals.some((product) => !product.tier)} onClick={() => void finalizeWeeklyCampaignOrders()}><PackageCheck size={15}/>{finalizingAll ? "주문서 발급 중…" : storeReviewOpen ? `전체 주문 확정 · 주문서 발급 (${campaignEligibleOrders.length}건)` : "픽업 전날 오전 11시부터 가능"}</button>
         </> : <div className="admin-empty">집계할 입금 완료 공동구매 주문이 없습니다.</div>}
       </section>

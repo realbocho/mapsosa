@@ -155,6 +155,16 @@
 .weekly-close-note{margin-top:8px;padding:11px 12px;border:1px solid #e7ece8;border-radius:12px}
 .weekly-close-note summary{color:#58665b;cursor:pointer;font-size:13px;font-weight:650;list-style-position:inside}
 .weekly-close-note textarea{width:100%;min-height:64px;margin-top:10px;padding:10px;border:1px solid #dce4dd;border-radius:9px;resize:vertical}
+.weekly-close-orders{display:grid;gap:9px;margin-top:12px}
+.weekly-close-order{padding:11px;border:1px solid #e5ebe5;border-radius:12px;background:#fbfdfb}
+.weekly-close-order.has-refund{border-color:#e8b665;background:#fff8ec;box-shadow:inset 3px 0 #d88c24}
+.weekly-close-order-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#35483a;font-size:12px}
+.weekly-close-order-heading>span{padding:5px 8px;border-radius:999px;background:#ffe7bd;color:#834f06;font-size:10px;font-weight:850;white-space:nowrap}
+.weekly-close-order-heading>small{color:#748078;font-size:10px}
+.weekly-close-refund-note{display:grid;gap:5px;margin-top:9px;padding:9px 10px;border:1px solid #f0d49f;border-radius:9px;background:#fffdf7;color:#674916}
+.weekly-close-refund-note>b{font-size:10px;font-weight:850}
+.weekly-close-refund-note>span{font-size:11px;font-weight:650;line-height:1.55;white-space:pre-line;word-break:keep-all}
+.weekly-close-order .weekly-close-note{margin-top:9px;background:#fff}
 .weekly-close-button{width:100%;margin-top:14px}
 .weekly-legacy-archive{margin:12px 0 20px}
 .weekly-legacy-archive>summary{padding:14px 16px;border:1px solid #e1e8e2;border-radius:14px;background:#f7f9f7;color:#69756c;cursor:pointer;font-size:13px;font-weight:650;list-style-position:inside}
