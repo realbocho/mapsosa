@@ -24,11 +24,19 @@ function formatDistance(meters: number) {
   return meters < 1000 ? `${Math.max(10, Math.round(meters / 10) * 10)}m` : `${(meters / 1000).toFixed(1)}km`;
 }
 
+function addDaysToDate(date: string, amount: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day + amount));
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+}
+
 export default function Home() {
-  const pickupOptions = useMemo(() => (["수요일", "토요일"] as PickupDay[])
-    .map((day) => ({ day, date: nextPickupDate(day) }))
-    .sort((a, b) => a.date.localeCompare(b.date)), []);
-  const [pickup, setPickup] = useState<PickupDay>(() => pickupOptions[0].day);
+  const pickupOptions = useMemo(() => {
+    const first = nextPickupDate("토요일");
+    return [first, addDaysToDate(first, 7)].map((date) => ({ day: "토요일" as PickupDay, date }));
+  }, []);
+  const [pickupDate, setPickupDate] = useState(() => pickupOptions[0].date);
+  const pickup: PickupDay = "토요일";
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [storeCoordinates, setStoreCoordinates] = useState<StoreCoordinate[]>([]);
@@ -63,7 +71,6 @@ export default function Home() {
   const [showGuidePrompt, setShowGuidePrompt] = useState(false);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const [paymentAccount, setPaymentAccount] = useState<{ bank_name: string; account_number: string; account_holder: string; memo: string } | null>(null);
-  const pickupDate = pickupOptions.find((option) => option.day === pickup)?.date ?? nextPickupDate(pickup);
   const soonestDate = formatPickupDate(pickupDate);
   const deadlineRemaining = currentTime ? orderDeadlineTimestamp(pickupDate) - currentTime : null;
   const deadlineCountdown = deadlineRemaining === null ? "시간 확인 중…" : deadlineRemaining <= 0 ? "마감됐어요" : (() => {
@@ -185,35 +192,42 @@ export default function Home() {
       if (active && data) setStores(data as StoreLocation[]);
     });
     setLoading(true);
-    const productsRequest = supabase.from("products").select("id,name,specification,consumer_price,type,slot_size,description,image_url,stores(id,name,area,closed_weekdays),price_comparisons(price)").eq("active", true);
-    const totalsRequest = supabase.rpc("product_order_totals", { p_pickup_date: pickupDate });
-    void Promise.all([productsRequest, totalsRequest]).then(([{ data }, { data: orderTotals }]) => {
+    const productsRequest = supabase.rpc("weekly_campaign_catalog", { p_pickup_date: pickupDate });
+    void productsRequest.then(({ data }) => {
       if (!active) return;
       if (data) {
-        const quantities = new Map<string, number>((orderTotals ?? []).map((entry: { product_id: string; applied_quantity: number }) => [entry.product_id, Number(entry.applied_quantity)] as const));
-        const dayIndex = pickup === "수요일" ? 3 : 6;
-        setCatalog(data.flatMap((row) => {
-          const store = (Array.isArray(row.stores) ? row.stores[0] : row.stores) as { id?: string; name?: string; area?: string; closed_weekdays?: number[] } | null;
-          if (!store || store.closed_weekdays?.includes(dayIndex)) return [];
-          const comparisons = (row.price_comparisons ?? []) as { price: number }[];
-          const comparisonPrice = comparisons.length ? Math.max(...comparisons.map((entry) => entry.price)) : row.consumer_price;
+        setCatalog(data.map((row: { product_id: string; store_id: string; store_name: string; store_area: string; store_address: string; closed_weekdays: number[]; name: string; specification: string; description: string | null; image_url: string | null; applied_quantity: number; tiers: { minimum_slots: number; unit_price: number }[] | null }) => {
           const isFruit = /사과|배|포도|키위|딸기|귤|한라봉|복숭아|수박|참외/.test(row.name);
           const emoji = /사과/.test(row.name) ? "🍎" : /포도/.test(row.name) ? "🍇" : /딸기/.test(row.name) ? "🍓" : /배/.test(row.name) ? "🍐" : isFruit ? "🍊" : "🥬";
-          return [{ id: row.id, storeId: store.id, name: row.name, variety: row.specification, store: store.name ?? "동네 청과점", area: store.area ?? "우리 동네", price: row.consumer_price, oldPrice: comparisonPrice, unit: row.specification, type: row.type, slotSize: row.slot_size ?? undefined, applied: quantities.get(row.id) ?? 0, image: row.image_url || emoji, note: row.description || "동네 청과점에서 정성껏 준비했어요", tag: row.type === "slot" ? "공동구매" : "바로 구매", pickup }];
+          const tiers = (row.tiers ?? []).map((tier) => ({ minimumSlots: Number(tier.minimum_slots), unitPrice: Number(tier.unit_price) })).sort((a, b) => a.minimumSlots - b.minimumSlots);
+          return { id: row.product_id, storeId: row.store_id, name: row.name, variety: row.specification, store: row.store_name, area: row.store_area, price: tiers[0]?.unitPrice ?? 0, oldPrice: tiers[0]?.unitPrice ?? 0, unit: row.specification, type: "instant" as const, applied: Number(row.applied_quantity ?? 0), image: row.image_url || emoji, note: row.description || "동네 청과점에서 정성껏 준비했어요", tag: "이번 주 공동구매", pickup, priceTiers: tiers };
         }));
-      }
+      } else setCatalog([]);
       setLoading(false);
     });
-    return () => { active = false; };
-  }, [pickup, pickupDate]);
+    const refresh = window.setInterval(() => { void supabase.rpc("weekly_campaign_catalog", { p_pickup_date: pickupDate }).then(({ data }) => {
+      if (!active || !data) return;
+      setCatalog((current) => current.map((product) => {
+        const row = data.find((entry: { product_id: string }) => entry.product_id === product.id) as { applied_quantity: number } | undefined;
+        return row ? { ...product, applied: Number(row.applied_quantity) } : product;
+      }));
+    }); }, 20_000);
+    return () => { active = false; window.clearInterval(refresh); };
+  }, [pickupDate]);
 
-  const count = Object.values(cart).reduce((sum, quantity) => sum + quantity, 0);
   function dismissGuidePrompt() {
     window.localStorage.setItem("mapsosa-guide-prompt-dismissed-v1", "1");
     setShowGuidePrompt(false);
   }
   const cartItems = catalog.filter((product) => cart[product.id]);
-  const total = cartItems.reduce((sum, product) => sum + product.price * cart[product.id], 0);
+  const count = cartItems.reduce((sum, product) => sum + cart[product.id], 0);
+  const priceForQuantity = (product: Product, quantity: number) => {
+    const tiers = product.priceTiers ?? [];
+    const totalSlots = product.applied + quantity;
+    const tier = [...tiers].reverse().find((entry) => entry.minimumSlots <= totalSlots) ?? tiers[0];
+    return tier?.unitPrice ?? product.price;
+  };
+  const total = cartItems.reduce((sum, product) => sum + priceForQuantity(product, cart[product.id]) * cart[product.id], 0);
   const reservationCartGroups = cartItems.reduce<{ id: string; name: string; address: string; products: Product[] }[]>((groups, product) => {
     const id = product.storeId ?? product.store;
     const store = stores.find((entry) => entry.id === id);
@@ -452,7 +466,7 @@ export default function Home() {
 
       <section className="pickup-panel" aria-label="픽업일 선택">
         <div><b>어느 날 픽업할까요?</b><span>픽업 날짜를 선택해 주세요</span></div>
-        <div className="day-picker">{pickupOptions.map(({ day, date }) => <button key={day} className={pickup === day ? "day-selected" : ""} onClick={() => { setPickup(day); closeStoreDetails(); }}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
+        <div className="day-picker">{pickupOptions.map(({ day, date }) => <button key={date} className={pickupDate === date ? "day-selected" : ""} onClick={() => { setPickupDate(date); closeStoreDetails(); }}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
         <div className={`pickup-deadline-countdown${deadlineRemaining !== null && deadlineRemaining <= 0 ? " is-closed" : ""}`} role="timer" aria-label={deadlineRemaining !== null && deadlineRemaining <= 0 ? "선택한 픽업일 주문이 마감되었습니다" : `주문 마감까지 ${deadlineCountdown}`}>
           <span>{deadlineRemaining !== null && deadlineRemaining <= 0 ? "선택한 픽업일 주문" : "주문 마감까지"}</span><b>{deadlineCountdown}</b><small>픽업 전날 오전 10시 마감</small>
         </div>
@@ -473,12 +487,16 @@ export default function Home() {
             <div className="pickup-store-summary store-detail-heading"><span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><button type="button" className="pickup-store-chevron" onClick={closeStoreDetails}>접기</button></span></div>
             <div className="store-product-details">{store.products.map((product) => {
               const imageIsUrl = isProductImageUrl(product.image);
-              const slotSize = product.slotSize ?? 0;
-              const completedSets = slotSize ? Math.floor(product.applied / slotSize) : 0;
-              const currentSetQuantity = slotSize ? product.applied % slotSize : 0;
+              const tiers = product.priceTiers ?? [];
+              const activeTier = [...tiers].reverse().find((tier) => tier.minimumSlots <= product.applied) ?? tiers[0];
+              const nextTier = tiers.find((tier, index) => index > 0 && tier.minimumSlots > product.applied);
+              const progressStart = activeTier?.minimumSlots ?? 0;
+              const progressSpan = nextTier ? Math.max(1, nextTier.minimumSlots - progressStart) : 1;
+              const progressPercent = nextTier ? Math.max(0, Math.min(100, (product.applied - progressStart) / progressSpan * 100)) : product.applied > 0 ? 100 : 0;
+              const displayPrice = priceForQuantity(product, cart[product.id] ?? 0);
               return <article className="mobile-product-card" key={product.id}>
-                <div className="mobile-product-top"><span className="product-kind">{product.type === "slot" ? "슬롯형" : "즉시구매형"}</span><span className="product-status">모집 중</span><span className="product-deadline">픽업 {soonestDate}</span></div>
-                <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(product.price)}원</strong>{product.type === "slot" && product.slotSize && <><div className="mobile-progress"><span style={{ width: `${Math.min(100, currentSetQuantity / product.slotSize * 100)}%` }}/></div><p className="progress-caption"><b>{currentSetQuantity === 0 && completedSets > 0 ? `${completedSets}세트 완료 · ${completedSets + 1}세트 0개 예약` : `${completedSets + 1}세트 ${currentSetQuantity}개 예약`}</b><span>· {Math.max(0, product.slotSize - currentSetQuantity)}개 더 모이면 확정</span></p></>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <ProductImage image={product.image} fallback="🍎"/> : product.image}</div></div>
+                <div className="mobile-product-top"><span className="product-kind">공동구매</span><span className="product-status">모집 중</span><span className="product-deadline">픽업 {soonestDate}</span></div>
+                <div className="mobile-product-body"><div className="mobile-product-main"><h3>{product.name} <span>{product.variety}</span></h3><strong>{won(displayPrice)}원 <small className="weekly-unit-label">/ 상품</small></strong><div className="weekly-tier-progress"><div className="weekly-progress-meta"><b>{product.applied.toLocaleString("ko-KR")}슬롯 · {Math.round(progressPercent)}%</b><span>{activeTier ? `${activeTier.minimumSlots}슬롯 가격 · ${won(activeTier.unitPrice)}원` : "가격 확인 중"}</span></div><div className="mobile-progress"><span style={{ width: `${progressPercent}%` }}/></div><p className="progress-caption">{nextTier ? <><b>다음 가격까지 {Math.max(0, nextTier.minimumSlots - product.applied)}슬롯</b><span>· {won(nextTier.unitPrice)}원 / 상품</span></> : <b>현재 최저 가격 구간이에요</b>}</p><div className="weekly-tier-list" aria-label="가게별 가격 구간">{tiers.map((tier) => <span className={activeTier?.minimumSlots === tier.minimumSlots ? "current" : ""} key={tier.minimumSlots}><b>{tier.minimumSlots}슬롯</b><small>{won(tier.unitPrice)}원</small></span>)}</div></div>{cart[product.id] > 0 && <small className="weekly-cart-price-note">현재 수량 기준 입금 단가 · {won(displayPrice)}원 / 상품</small>}</div><div className="mobile-fruit" aria-hidden="true">{imageIsUrl ? <ProductImage image={product.image} fallback="🍎"/> : product.image}</div></div>
                 <div className="mobile-product-bottom"><div className="mobile-store"><MapPin size={14}/><b>{product.store}</b><span>· {product.area}</span></div><button className="reserve-button" onClick={() => void reserveProduct(product)}>{cart[product.id] ? `${cart[product.id]}개 담김` : "예약하기"}<Plus size={15}/></button></div>
               </article>;
             })}</div><p className="store-swipe-hint"><ArrowLeftRight size={18} strokeWidth={2.5} aria-hidden="true"/><span>가게를 좌우로 밀어 다른 가게 보기</span></p>
@@ -512,7 +530,7 @@ export default function Home() {
     {showLoginPrompt && <div className="mobile-modal-backdrop login-required-backdrop" onClick={() => setShowLoginPrompt(false)}><section className="login-required-dialog" role="dialog" aria-modal="true" aria-labelledby="login-required-title" onClick={(event) => event.stopPropagation()}><button className="login-required-close" onClick={() => setShowLoginPrompt(false)} aria-label="닫기"><X size={19}/></button><span className="login-required-icon"><Sprout size={21}/></span><h2 id="login-required-title">로그인이 필요합니다</h2><p>주문하려면 카카오 계정으로 로그인해 주세요.</p><button className="kakao-start" onClick={() => void signIn()}>카카오로 로그인하기</button></section></div>}
 
     {checkout && <div className="mobile-modal-backdrop" onClick={() => setCheckout(false)}><section className="mobile-checkout" onClick={(event) => event.stopPropagation()}><div className="checkout-title"><div><span className="section-kicker">YOUR RESERVATION</span><h2>예약 목록</h2></div><button className="close-button" onClick={() => setCheckout(false)} aria-label="닫기"><X size={20}/></button></div>
-      <div className="mobile-cart-items">{reservationCartGroups.map((group) => <section className="cart-store-group" key={group.id}><header><b>{group.name}</b><span>{group.address}</span></header><div>{group.products.map((product) => <div className="mobile-cart-item" key={product.id}><span className="cart-produce"><ProductImage image={product.image} fallback={product.image}/></span><div className="cart-item-copy"><b>{product.name}</b><small>{product.variety} · {won(product.price)}원</small></div><div className="mobile-quantity"><button onClick={() => changeQuantity(product.id, -1)} aria-label="수량 줄이기"><Minus size={15}/></button><span>{cart[product.id]}</span><button onClick={() => changeQuantity(product.id, 1)} aria-label="수량 늘리기"><Plus size={15}/></button></div></div>)}</div></section>)}</div>
+      <div className="mobile-cart-items">{reservationCartGroups.map((group) => <section className="cart-store-group" key={group.id}><header><b>{group.name}</b><span>{group.address}</span></header><div>{group.products.map((product) => <div className="mobile-cart-item" key={product.id}><span className="cart-produce"><ProductImage image={product.image} fallback={product.image}/></span><div className="cart-item-copy"><b>{product.name}</b><small>{product.variety} · {won(priceForQuantity(product, cart[product.id]))}원 / 상품</small></div><div className="mobile-quantity"><button onClick={() => changeQuantity(product.id, -1)} aria-label="수량 줄이기"><Minus size={15}/></button><span>{cart[product.id]}</span><button onClick={() => changeQuantity(product.id, 1)} aria-label="수량 늘리기"><Plus size={15}/></button></div></div>)}</div></section>)}</div>
       <div className="refund-options"><h3>상품이 부족하면 어떻게 할까요?</h3><button className={refund === "partial" ? "refund-selected" : ""} onClick={() => setRefund("partial")}><span className="radio-mark"/><span><b>가능한 상품만 받을게요</b><small>부족한 수량만 환불돼요.</small></span></button><button className={refund === "all" ? "refund-selected" : ""} onClick={() => setRefund("all")}><span className="radio-mark"/><span><b>전체 환불받을게요</b><small>일부라도 준비되지 않으면 전체 환불돼요.</small></span></button></div>
       <div className="mobile-bank-form"><h3>환불 계좌와 입금자 정보</h3><div className="bank-input-grid"><input placeholder="은행명" aria-label="환불 은행명" value={refundBank} onChange={(e) => setRefundBank(e.target.value)}/><input placeholder="계좌번호" aria-label="환불 계좌번호" value={refundAccount} onChange={(e) => setRefundAccount(e.target.value)}/><input placeholder="예금주" aria-label="예금주" value={refundHolder} onChange={(e) => setRefundHolder(e.target.value)}/><input placeholder="입금자명" aria-label="입금자명" value={depositorName} onChange={(e) => setDepositorName(e.target.value)}/></div><p>픽업은 {soonestDate}이며, 주문은 픽업일 전날 오전 10시에 마감됩니다.</p></div>
       <div className="pickup-disposal-notice" role="note"><b>픽업 당일 꼭 수령해 주세요</b><span>당일 찾아가지 않은 상품은 폐기 처리되며, 환불되지 않습니다.</span></div>
@@ -520,6 +538,6 @@ export default function Home() {
       <div className="mobile-total"><span>결제 예정 금액</span><b>{won(total)}원</b></div><button className="place-order-button" disabled={submitting || !paymentAccount || (deadlineRemaining !== null && deadlineRemaining <= 0)} onClick={() => setShowFinalReservationConfirm(true)}>{!paymentAccount ? "입금 계좌 설정 대기" : deadlineRemaining !== null && deadlineRemaining <= 0 ? "주문 마감" : "예약하고 입금하기"}<ArrowRight size={17}/></button>
     </section></div>}
     {showFinalReservationConfirm && <div className="mobile-modal-backdrop" onClick={() => setShowFinalReservationConfirm(false)}><section className="login-required-dialog reservation-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reservation-confirm-title" onClick={(event) => event.stopPropagation()}><button className="login-required-close" onClick={() => setShowFinalReservationConfirm(false)} aria-label="닫기"><X size={19}/></button><span className="login-required-icon"><Clock3 size={21}/></span><h2 id="reservation-confirm-title">예약 내용을 확인해 주세요</h2><p>픽업 날짜는 <b>{soonestDate}</b>입니다.<br/>총 {count}개, {won(total)}원으로 예약할까요?</p><div className="reservation-pickup-stores"><b>픽업 가게</b>{reservationPickupStores.map((store) => <div key={store.name}><strong>{store.name}</strong><span>{store.address}</span></div>)}</div><div className="pickup-disposal-notice" role="note"><b>픽업 당일 꼭 수령해 주세요</b><span>당일 찾아가지 않은 상품은 폐기 처리되며, 환불되지 않습니다.</span></div><button className="place-order-button" disabled={submitting || (deadlineRemaining !== null && deadlineRemaining <= 0)} onClick={() => void placeOrder()}>{submitting ? "예약 확정 중…" : deadlineRemaining !== null && deadlineRemaining <= 0 ? "주문 마감" : "확인하기"}<ArrowRight size={17}/></button><button className="reservation-back-button" onClick={() => setShowFinalReservationConfirm(false)}>돌아가서 수정하기</button></section></div>}
-    {showPaymentNotice && <div className="mobile-modal-backdrop" onClick={() => { setShowPaymentNotice(false); window.location.assign("/orders"); }}><section className="login-required-dialog payment-notice-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-notice-title" onClick={(event) => event.stopPropagation()}><span className="login-required-icon"><Check size={21}/></span><h2 id="payment-notice-title">예약이 확정됐어요</h2><p>픽업 날짜: <b>{confirmedPickupDate}</b><br/>예약 금액: <b>{won(confirmedOrderTotal)}원</b></p><div className="reservation-pickup-stores"><b>픽업 가게</b>{confirmedPickupStores.map((store) => <div key={store.name}><strong>{store.name}</strong><span>{store.address}</span></div>)}</div><div className="checkout-transfer-account"><b>{paymentAccount?.bank_name} {paymentAccount?.account_number}</b><span>예금주 {paymentAccount?.account_holder}</span>{paymentAccount?.memo && <small>{paymentAccount.memo}</small>}</div><div className="payment-deadline-notice"><b>입금 기한 안내</b><span>주문 후 1시간 안에 입금해 주세요. 시간이 지나면 주문이 자동 취소됩니다.</span></div><p>위 계좌로 입금해 주세요. 입금 확인 후 주문 상태가 갱신됩니다.</p><p className="payment-order-ticket-notice">상품 최종 확정과 주문확인서 발급은 픽업일 전날 오후에 진행돼요. 발급된 주문확인서는 픽업할 때 청과점에 보여주세요.</p><button className="place-order-button" onClick={() => window.location.assign("/orders")}>내 주문 확인하기<ArrowRight size={17}/></button></section></div>}
+    {showPaymentNotice && <div className="mobile-modal-backdrop" onClick={() => { setShowPaymentNotice(false); window.location.assign("/orders"); }}><section className="login-required-dialog payment-notice-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-notice-title" onClick={(event) => event.stopPropagation()}><span className="login-required-icon"><Check size={21}/></span><h2 id="payment-notice-title">예약이 확정됐어요</h2><p>픽업 날짜: <b>{confirmedPickupDate}</b><br/>예약 금액: <b>{won(confirmedOrderTotal)}원</b></p><div className="reservation-pickup-stores"><b>픽업 가게</b>{confirmedPickupStores.map((store) => <div key={store.name}><strong>{store.name}</strong><span>{store.address}</span></div>)}</div><div className="checkout-transfer-account"><b>{paymentAccount?.bank_name} {paymentAccount?.account_number}</b><span>예금주 {paymentAccount?.account_holder}</span>{paymentAccount?.memo && <small>{paymentAccount.memo}</small>}</div><div className="payment-deadline-notice"><b>입금 안내</b><span>주문 후 1시간 안에 입금해 주세요. 시간이 지나도 주문은 자동 취소되지 않으며, 이후 입금은 관리자 확인이 필요해요.</span></div><p>위 계좌로 입금해 주세요. 입금 확인 후 주문 상태가 갱신됩니다.</p><p className="payment-order-ticket-notice">상품 최종 확정과 주문확인서 발급은 픽업일 전날 오후에 진행돼요. 발급된 주문확인서는 픽업할 때 청과점에 보여주세요.</p><p className="weekly-final-price-notice">지금 표시된 가게별 가격 구간으로 입금해 주세요. 마감 후 더 낮은 가격 구간이 적용되면 운영자가 차액을 확인해 별도로 환불합니다.</p><button className="place-order-button" onClick={() => window.location.assign("/orders")}>내 주문 확인하기<ArrowRight size={17}/></button></section></div>}
   </main>;
 }

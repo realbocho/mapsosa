@@ -16,7 +16,7 @@ export function AdminAnalytics() {
   const [signupCount, setSignupCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [campaign, setCampaign] = useState(""); const [spend, setSpend] = useState(""); const [saving, setSaving] = useState(false);
   const [netProfits, setNetProfits] = useState<PickupNetProfit[]>([]);
-  const [profitPickupDate, setProfitPickupDate] = useState(() => nextPickupDate("수요일"));
+  const [profitPickupDate, setProfitPickupDate] = useState(() => nextPickupDate("토요일"));
   const [profitAmount, setProfitAmount] = useState("");
   const [savingProfit, setSavingProfit] = useState(false);
   const [profitNotice, setProfitNotice] = useState("");
@@ -45,7 +45,8 @@ export function AdminAnalytics() {
     event.preventDefault();
     const amount = Number(profitAmount);
     const weekday = new Date(`${profitPickupDate}T00:00:00Z`).getUTCDay();
-    if (weekday !== 3 && weekday !== 6) { setProfitNotice("픽업일은 수요일 또는 토요일로 선택해 주세요."); return; }
+    const todaySeoul = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    if (profitPickupDate >= todaySeoul && weekday !== 6) { setProfitNotice("앞으로의 픽업 운영일은 토요일로 선택해 주세요."); return; }
     if (!Number.isSafeInteger(amount)) { setProfitNotice("순수익은 원 단위 정수로 입력해 주세요."); return; }
     const supabase = createClient();
     if (!supabase) { setProfitNotice("Supabase 설정을 확인해 주세요."); return; }
@@ -89,7 +90,7 @@ export function AdminAnalytics() {
     {error && <p className="analytics-error">{error}</p>}{loading && <div className="admin-empty">분석 자료를 불러오고 있어요…</div>}
     {!loading && <>
       <section className="admin-card net-profit-card"><div className="net-profit-heading"><div><h3>픽업일별 순수익</h3><p>매출이나 비용에서 자동 계산하지 않아요. 픽업일별 순수익을 직접 입력해 주세요.</p></div><span>최근 12회</span></div>
-        <form className="net-profit-form" onSubmit={(event) => void saveNetProfit(event)}><label htmlFor="net-profit-date">픽업일</label><input id="net-profit-date" type="date" value={profitPickupDate} onChange={(event) => setProfitPickupDate(event.target.value)} required/><label htmlFor="net-profit-amount">순수익 (원)</label><input id="net-profit-amount" type="number" step="1" inputMode="numeric" value={profitAmount} onChange={(event) => setProfitAmount(event.target.value)} placeholder="예: 35000 또는 -12000" required/><small>손실은 음수로 입력할 수 있어요. 수요일·토요일 픽업일만 저장됩니다.</small><button className="admin-save" type="submit" disabled={savingProfit || profitAmount === ""}>{savingProfit ? "저장 중…" : netProfits.some((entry) => entry.pickup_date === profitPickupDate) ? "순수익 수정하기" : "순수익 저장하기"}</button></form>
+        <form className="net-profit-form" onSubmit={(event) => void saveNetProfit(event)}><label htmlFor="net-profit-date">픽업일</label><input id="net-profit-date" type="date" value={profitPickupDate} onChange={(event) => setProfitPickupDate(event.target.value)} required/><label htmlFor="net-profit-amount">순수익 (원)</label><input id="net-profit-amount" type="number" step="1" inputMode="numeric" value={profitAmount} onChange={(event) => setProfitAmount(event.target.value)} placeholder="예: 35000 또는 -12000" required/><small>새 픽업은 매주 토요일이에요. 과거 수요일 기록은 수정할 수 있어요.</small><button className="admin-save" type="submit" disabled={savingProfit || profitAmount === ""}>{savingProfit ? "저장 중…" : netProfits.some((entry) => entry.pickup_date === profitPickupDate) ? "순수익 수정하기" : "순수익 저장하기"}</button></form>
         {profitNotice && <p className={`net-profit-notice${profitNotice.startsWith("저장하지") || profitNotice.includes("확인해") || profitNotice.includes("필요합니다") || profitNotice.includes("선택해") || profitNotice.includes("입력해") ? " error" : ""}`} role="status">{profitNotice}</p>}
         {chartProfits.length ? <><div className="net-profit-chart-wrap"><svg className="net-profit-chart" viewBox="0 0 720 150" role="img" aria-labelledby="net-profit-chart-title net-profit-chart-desc"><title id="net-profit-chart-title">최근 12개 픽업일 순수익</title><desc id="net-profit-chart-desc">픽업일 순서에 따른 직접 입력한 순수익 그래프입니다. 기준선 아래는 손실입니다.</desc><line x1="22" x2="698" y1={chartZeroY} y2={chartZeroY} className="net-profit-zero"/><text x="5" y={chartZeroY - 5} className="net-profit-axis-label">0</text>{chartPoints.length > 1 && <polyline points={chartPoints.map((point) => `${point.x},${point.y}`).join(" ")} className="net-profit-line"/>}{chartPoints.map((point) => <g key={point.pickup_date}><circle cx={point.x} cy={point.y} r="5" className={point.amount < 0 ? "net-profit-point loss" : "net-profit-point"}/><text x={point.x} y="140" textAnchor="middle" className="net-profit-date-label">{day(point.pickup_date)}</text></g>)}</svg></div><div className="net-profit-values" aria-label="픽업일별 순수익 수치">{chartProfits.map((entry) => <div key={entry.pickup_date}><span>{formatPickupDate(entry.pickup_date)}</span><b className={entry.amount < 0 ? "loss" : ""}>{entry.amount > 0 ? "+" : ""}{won(entry.amount)}원</b></div>)}</div></> : <div className="admin-empty net-profit-empty">아직 입력한 순수익이 없습니다. 픽업일별 금액을 저장하면 여기에 그래프가 표시돼요.</div>}
       </section>

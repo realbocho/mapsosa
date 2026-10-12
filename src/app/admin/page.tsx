@@ -8,6 +8,7 @@ import { AdminOrders } from "@/components/admin-orders";
 import { ProductImage } from "@/components/product-image";
 import { AdminAnalytics } from "@/components/admin-analytics";
 import { AdminAssistedOrder } from "@/components/admin-assisted-order";
+import { AdminWeeklyCampaign } from "@/components/admin-weekly-campaign";
 
 type StoreRow = { id: string; name: string; area: string; address: string; opening_time: string | null; closing_time: string; closed_weekdays: number[]; active: boolean };
 type ComparisonRow = { id: string; vendor: string; price: number; specification: string };
@@ -156,7 +157,7 @@ export default function AdminPage() {
   return <main className="admin-app">
     <header className="admin-top"><a href="/"><ArrowLeft size={17}/>고객 화면</a><b>맵소사 관리자</b><Store size={18} color="#2f8f4e"/></header>
     <div className="admin-content">
-      <div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>{section === "orders" ? "주문과 입금 관리" : section === "catalog" ? "가게와 상품 관리" : "데이터 분석"}</h1><p>{section === "orders" ? "픽업일별 주문 총량을 보고 입금과 확정 처리를 해요." : section === "catalog" ? "가게를 여러 곳 등록한 뒤, 각 가게의 상품을 연결해 주세요." : "입금 확인 고객, 재구매, 유입, 상품 수요를 살펴봐요."}</p></div>
+      <div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>{section === "orders" ? "주문과 입금 관리" : section === "catalog" ? "가게와 상품 관리" : "데이터 분석"}</h1><p>{section === "orders" ? "픽업일별 주문 총량을 보고 입금과 확정 처리를 해요." : section === "catalog" ? "토요일 공동구매 품목 하나를 등록하고 가게별 가격 구간을 설정해요." : "입금 확인 고객, 재구매, 유입, 상품 수요를 살펴봐요."}</p></div>
       <div className="admin-main-tabs"><button className={section === "orders" ? "selected" : ""} onClick={() => setSection("orders")}>주문 · 입금</button><button className={section === "catalog" ? "selected" : ""} onClick={() => setSection("catalog")}>가게 · 상품</button><button className={section === "analytics" ? "selected" : ""} onClick={() => setSection("analytics")}>데이터 분석</button></div>
       {notice && <div className={error ? "admin-notice error" : "admin-notice"}>{!error && <Check size={14} style={{ verticalAlign: "middle", marginRight: 5 }}/>} {notice}</div>}
       {section === "orders" ? <><AdminAssistedOrder onCreated={() => setOrdersReloadKey((value) => value + 1)}/><AdminOrders reloadKey={ordersReloadKey}/></> : section === "analytics" ? <AdminAnalytics/> : <>
@@ -170,6 +171,8 @@ export default function AdminPage() {
         <div className="admin-field"><label>정기 휴무</label><div className="admin-day-checks">{[[0,"일"],[1,"월"],[2,"화"],[3,"수"],[4,"목"],[5,"금"],[6,"토"]].map(([value,label]) => <label key={value}><input type="checkbox" checked={storeDaysOff.includes(Number(value))} onChange={(event) => setStoreDaysOff((days) => event.target.checked ? [...days, Number(value)] : days.filter((day) => day !== Number(value)))}/>{label}</label>)}</div></div>
         <button className="admin-save" type="submit" disabled={saving}>{saving ? "저장 중…" : "청과점 등록하고 다음 가게 추가"}</button>
       </form>
+      <AdminWeeklyCampaign stores={stores.map(({ id, name, area, active, closed_weekdays }) => ({ id, name, area, active, closed_weekdays }))}/>
+      <details className="legacy-product-tools"><summary>이전 상품 관리 · 새 주문 화면에는 노출되지 않음</summary>
       <form id="product-form" className="admin-card admin-fields" onSubmit={(event) => void addProduct(event)}>
         <div className="admin-inline-title"><h2>{editingProductId ? "상품 정보 수정" : "새 상품 등록"}</h2>{editingProductId && <button type="button" onClick={resetProductForm}>수정 취소</button>}</div>
         <div className="admin-field"><label htmlFor="product-store">판매 청과점</label><select id="product-store" value={selectedStore} onChange={(event) => setSelectedStore(event.target.value)} required><option value="">청과점을 선택해 주세요</option>{stores.filter((store) => store.active || store.id === selectedStore).map((store) => <option key={store.id} value={store.id}>{store.name} · {store.area}{store.active ? "" : " (운영 중지)"}</option>)}</select></div>
@@ -187,7 +190,8 @@ export default function AdminPage() {
       </form>
 
       <section className="admin-card"><h2>등록된 상품 <span style={{ color: "#7a847b", fontWeight: 500 }}>({items.length})</span></h2>{items.length ? <div className="admin-product-list">{items.map((item) => { const store = Array.isArray(item.stores) ? item.stores[0] : item.stores; const visual = item.image_url || "🍎"; return <article className="admin-product-row" key={item.id}><span className="admin-product-emoji"><ProductImage image={visual} fallback={/^https?:\/\//i.test(visual.trim()) ? "🍎" : visual}/></span><div className="admin-product-copy"><b>{item.name} · {item.specification}</b><span>{store?.name ?? "청과점"} · {won(item.consumer_price)}원{item.slot_size ? ` · ${item.slot_size}개 단위` : " · 단위 제한 없음"}</span></div><div className="admin-row-actions"><button className="admin-edit" onClick={() => startEditingProduct(item)}>수정</button><button className={item.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleProduct(item)}>{item.active ? "판매 중" : "숨김"}</button></div></article>; })}</div> : <div className="admin-empty">아직 등록된 상품이 없어요. 위에서 상품을 등록해 주세요.</div>}</section>
-      <section className="admin-card"><h2>등록된 청과점 <span style={{ color: "#7a847b", fontWeight: 500 }}>({stores.length})</span></h2>{stores.length ? <div className="admin-product-list">{stores.map((store) => <article className="admin-product-row" key={store.id}><span className="admin-product-emoji"><Store size={18}/></span><div className="admin-product-copy"><b>{store.name}</b><span>{store.area} · {store.address} · {store.opening_time ? `${store.opening_time.slice(0, 5)} 오픈` : "오픈 시간 미등록"}–{store.closing_time.slice(0, 5)} 마감</span></div><button className={store.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleStore(store)}>{store.active ? "운영 중" : "중지"}</button></article>)}</div> : <div className="admin-empty">위의 청과점 등록에서 첫 번째 가게를 추가해 주세요. 필요한 만큼 계속 등록할 수 있어요.</div>}</section>
+      </details>
+      <section className="admin-card"><h2>등록된 청과점 <span style={{ color: "#7a847b", fontWeight: 500 }}>({stores.length})</span></h2>{stores.length ? <div className="admin-product-list">{stores.map((store) => <article className="admin-product-row" key={store.id}><span className="admin-product-emoji"><Store size={18}/></span><div className="admin-product-copy"><b>{store.name}</b><span>{store.area} · {store.address} · {store.opening_time ? `${store.opening_time.slice(0, 5)} 오픈` : "오픈 시간 미등록"}–{store.closing_time.slice(0, 5)} 마감</span></div><button className={store.active ? "active-toggle" : "active-toggle inactive"} onClick={() => void toggleStore(store)}>{store.active ? "운영 중" : "중지"}</button></article>)}</div> : <div className="admin-empty">위의 청과점 등록에서 첫 번째 가게를 추가해 주세요. 필요한 만큼 계속 입력할 수 있어요.</div>}</section>
       </>}
     </div>
   </main>;

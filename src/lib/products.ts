@@ -15,6 +15,7 @@ export type Product = {
   note: string;
   tag: string;
   pickup: string;
+  priceTiers?: { minimumSlots: number; unitPrice: number }[];
 };
 
 // Production catalog is populated by operators through /admin.
