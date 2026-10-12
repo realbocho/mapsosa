@@ -99,7 +99,7 @@
 .weekly-tier-list>span.next{border-color:#a9c8ad;background:#f0f7ef;color:#4c7252}
 .weekly-tier-list>span.future{opacity:.72}
 .weekly-tier-list b{font-size:9px}.weekly-tier-list small{font-size:9px;font-weight:700}
-.weekly-cart-price-note{display:block;margin-top:5px;color:#55765c;font-size:9px;font-weight:700}
+.weekly-refund-note{margin:7px 0 0;padding:8px 9px;border-radius:8px;background:#fff8e9;color:#765624;font-size:10px;font-weight:650;line-height:1.5;word-break:keep-all}
 .weekly-final-price-notice{margin:0!important;padding:11px;border:1px solid #d9e9d8;border-radius:10px;background:#f3f8f1;color:#376947;font-size:11px!important;font-weight:700;line-height:1.65;word-break:keep-all}
 .weekly-campaign-wrap{display:grid;gap:10px}
 .weekly-campaign-form{gap:15px!important;padding:16px!important;border-color:#dfe9df!important;background:linear-gradient(150deg,#fff 0%,#f7faf5 100%)}

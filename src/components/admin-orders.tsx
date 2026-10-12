@@ -210,8 +210,8 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
     });
   }, []);
 
-  const activeOrders = orders.filter((order) => activeStatuses.has(order.status));
-  const paidOrders = orders.filter((order) => Boolean(order.paid_at) || !["awaiting_payment", "cancelled_unpaid"].includes(order.status));
+  const activeOrders = orders.filter((order) => Boolean(order.paid_at) && activeStatuses.has(order.status));
+  const paidOrders = orders.filter((order) => Boolean(order.paid_at));
   const inventoryOrders = orders.filter((order) => Boolean(order.paid_at) && ["paid_recruiting", "slot_confirmed", "store_checking"].includes(order.status)).sort((a, b) => a.created_at.localeCompare(b.created_at));
   const draftOrders = inventoryOrders.filter((order) => Boolean(order.inventory_reviewed_at));
   const draftRows = draftOrders.flatMap((order) => {
