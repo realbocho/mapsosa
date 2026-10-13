@@ -32,7 +32,7 @@ const statusText: Record<string, string> = {
   pickup_ready: "픽업 준비 완료", picked_up: "픽업 완료", auto_completed: "자동 완료",
 };
 const refundText: Record<string, string> = { slot_boundary: "1세트 완료 · 다음 세트 미달", slot_unfilled: "슬롯 1세트 미달", price_limit: "가격 기준 초과", quality: "품질 기준 미충족", quantity_unavailable: "가게 수량 확보 불가", urgent_store_unreachable: "가게 연락 불가", late_payment: "늦은 입금", customer_cancelled: "고객 취소", deposit_not_confirmed: "입금 내역이 확인되지 않아 취소됐어요. 입금하셨다면 관리자에게 문의해 주세요." };
-function refundLabel(refund: Refund) { return refund.message?.includes("낮은 가격 구간") ? "가격 구간 차액 환불" : refundText[refund.reason] ?? "환불"; }
+function refundLabel(refund: Refund) { return refund.message?.includes("낮은 가격 구간") ? "가격 구간 차액 환불" : "환불"; }
 const generatedRefundMessages = new Set(["주문하신 수량을 모두 확보하기 어려워 일부 금액을 환불합니다.", "가게 확인 결과 일부 수량을 준비하기 어려워 해당 금액을 환불합니다.", "일부 품목을 준비하지 못해 주문 전체를 환불합니다."]);
 
 export default function OrdersPage() {
