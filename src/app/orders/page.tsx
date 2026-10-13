@@ -1,17 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Banknote, Check, Printer, Ticket, X } from "lucide-react";
+import { ArrowLeft, Banknote, Check, Printer, Star, Ticket, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { formatPickupDate, orderDeadlineTimestamp } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
 import { LegalLinks } from "@/components/legal-links";
 import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
 
-type OrderItem = { id: string; quantity: number; confirmed_quantity: number | null; refund_quantity: number; unit_price: number; final_unit_price: number | null; products: { name: string; specification: string; stores: { name: string; address: string } | null } | null };
+type OrderItem = { id: string; quantity: number; confirmed_quantity: number | null; refund_quantity: number; unit_price: number; final_unit_price: number | null; products: { name: string; specification: string; stores: { id: string; name: string; address: string } | null } | null };
 type PickupPass = { token: string; issued_at: string; item_snapshot: { name: string; specification: string; quantity: number; confirmation_note?: string }[]; completed_at: string | null };
 type Refund = { id: string; reason: string; amount: number; message: string; transferred_at: string | null };
 type Order = { id: string; order_number: string; pickup_date: string; total: number; status: string; paid_at: string | null; created_at: string; updated_at: string; depositor_name: string; refund_bank: string; refund_account: string; refund_account_holder: string; payment_bank: string | null; payment_account: string | null; payment_account_holder: string | null; cancel_reason: string | null; cancellation_requested_at: string | null; order_source: string; profiles: { nickname: string } | null; assisted_customers: { nickname: string } | null; order_items: OrderItem[]; pickup_passes: PickupPass[] | PickupPass | null; refunds: Refund[] };
+type StoreRating = { order_id: string; store_id: string; stars: number };
 
 function getPickupConfirmationItems(order: Order, pass: PickupPass) {
   const fullyRefunded = ["refunded", "late_payment_refund"].includes(order.status);
@@ -39,6 +40,8 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [savingRatingKey, setSavingRatingKey] = useState<string | null>(null);
   const [activePass, setActivePass] = useState<{ order: Order; pass: PickupPass } | null>(null);
   const [notice, setNotice] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
@@ -49,13 +52,18 @@ export default function OrdersPage() {
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) { setSignedIn(false); setLoading(false); return; }
     setSignedIn(true);
-    const { data, error } = await supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,created_at,updated_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,cancel_reason,cancellation_requested_at,order_source,profiles(nickname),assisted_customers(nickname),order_items(id,quantity,confirmed_quantity,refund_quantity,unit_price,final_unit_price,products(name,specification,stores(name,address))),pickup_passes(token,issued_at,item_snapshot,completed_at),refunds(id,reason,amount,message,transferred_at)").order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select("id,order_number,pickup_date,total,status,paid_at,created_at,updated_at,depositor_name,refund_bank,refund_account,refund_account_holder,payment_bank,payment_account,payment_account_holder,cancel_reason,cancellation_requested_at,order_source,profiles(nickname),assisted_customers(nickname),order_items(id,quantity,confirmed_quantity,refund_quantity,unit_price,final_unit_price,products(name,specification,stores(id,name,address))),pickup_passes(token,issued_at,item_snapshot,completed_at),refunds(id,reason,amount,message,transferred_at)").order("created_at", { ascending: false });
     if (error) setNotice(`주문 내역을 불러오지 못했어요: ${error.message}`);
     else if (data) {
       const newest = newestOrderUpdate(data as { updated_at?: string | null }[]);
       if (newest) window.localStorage.setItem(orderUpdatesSeenKey(auth.user.id), newest);
     }
-    setOrders((data ?? []) as unknown as Order[]);
+    const loadedOrders = (data ?? []) as unknown as Order[];
+    setOrders(loadedOrders);
+    if (loadedOrders.length) {
+      const { data: savedRatings, error: ratingsError } = await supabase.from("store_ratings").select("order_id,store_id,stars").in("order_id", loadedOrders.map((order) => order.id));
+      if (!ratingsError) setRatings(Object.fromEntries(((savedRatings ?? []) as StoreRating[]).map((rating) => [`${rating.order_id}:${rating.store_id}`, rating.stars])));
+    } else setRatings({});
     setLoading(false);
   }, []);
 
@@ -85,6 +93,20 @@ export default function OrdersPage() {
     await loadOrders();
   }
 
+  async function saveRating(order: Order, storeId: string, stars: number) {
+    const supabase = createClient();
+    if (!supabase) return;
+    const key = `${order.id}:${storeId}`;
+    setSavingRatingKey(key);
+    const { error } = await supabase.rpc("save_store_rating", { p_order_id: order.id, p_store_id: storeId, p_stars: stars });
+    if (error) setNotice(`별점을 저장하지 못했어요: ${error.message}`);
+    else {
+      setRatings((current) => ({ ...current, [key]: stars }));
+      setNotice("별점을 저장했어요.");
+    }
+    setSavingRatingKey(null);
+  }
+
   const ticketItems = activePass ? getPickupConfirmationItems(activePass.order, activePass.pass) : [];
 
   if (loading) return <main className="orders-app"><header className="orders-top"><a href="/"><ArrowLeft size={17}/>맵소사</a><b>내 주문</b></header><div className="order-empty">주문을 불러오고 있어요…</div></main>;
@@ -106,11 +128,16 @@ export default function OrdersPage() {
         const confirmationNote = pass?.item_snapshot.find((item) => item.confirmation_note)?.confirmation_note ?? (!pass ? refundNote : undefined);
         const pickupStores = [...new Map(order.order_items.flatMap((item) => {
           const store = item.products?.stores;
-          return store?.name ? [[`${store.name}-${store.address}`, store] as const] : [];
+          return store?.id ? [[store.id, store] as const] : [];
         })).values()];
         return <article className="order-card" key={order.id}>
           <div className="order-card-top"><div><span className="order-date">픽업 {formatPickupDate(order.pickup_date)}</span><b>{order.order_number}</b>{order.order_source === "assisted" && <small>대리 주문 · {order.assisted_customers?.nickname ?? "대리 구매자"}</small>}</div><span className={`order-status ${pass ? "ready" : ""}`}>{visibleStatus}</span></div>
           {pickupStores.length > 0 && <div className="order-pickup-stores"><b>픽업 가게</b>{pickupStores.map((store) => <div key={`${store.name}-${store.address}`}><strong>{store.name}</strong><span>{store.address || "가게 주소가 등록되지 않았어요."}</span></div>)}</div>}
+          {order.order_source === "direct" && ["picked_up", "auto_completed"].includes(order.status) && pickupStores.map((store) => {
+            const key = `${order.id}:${store.id}`;
+            const selectedStars = ratings[key] ?? 0;
+            return <section className="order-store-rating" key={key} aria-label={`${store.name} 별점 평가`}><div><b>{store.name} 별점</b><small>{selectedStars ? `내 평가 ${selectedStars}점 · 다시 선택해 수정할 수 있어요` : "이용한 가게를 평가해 주세요"}</small></div><div className="order-rating-stars" role="group" aria-label={`${store.name} 별점 선택`}>{[1, 2, 3, 4, 5].map((stars) => <button key={stars} type="button" disabled={savingRatingKey === key} aria-label={`${stars}점`} aria-pressed={selectedStars === stars} onClick={() => void saveRating(order, store.id, stars)}><Star size={22} fill={stars <= selectedStars ? "currentColor" : "none"}/></button>)}</div></section>;
+          })}
           {confirmationNote && <div className="order-confirmation-note"><b>주문서 비고</b><span>{confirmationNote}</span></div>}
           <div className="order-items">{order.order_items.map((item) => {
             const confirmed = item.confirmed_quantity ?? (fullyRefunded ? 0 : item.quantity);

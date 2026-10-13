@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type UIEvent } from "react";
-import { ArrowDown, ArrowLeftRight, ArrowRight, Check, Clock3, LocateFixed, MapPin, Minus, Plus, ShoppingBag, Sprout, X } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowRight, Check, Clock3, LocateFixed, MapPin, Minus, Plus, ShoppingBag, Sprout, Star, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isProductImageUrl, won, type Product } from "@/lib/products";
 import { StoreMap, type StoreCoordinate, type StoreLocation } from "@/components/store-map";
@@ -39,6 +39,7 @@ export default function Home() {
   const pickup: PickupDay = "토요일";
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [stores, setStores] = useState<StoreLocation[]>([]);
+  const [storeRatings, setStoreRatings] = useState<Record<string, { average: number; count: number }>>({});
   const [storeCoordinates, setStoreCoordinates] = useState<StoreCoordinate[]>([]);
   const [nearbySort, setNearbySort] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -250,6 +251,19 @@ export default function Home() {
     }
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
   }, [catalog]);
+  const catalogStoreIds = storeCatalog.map((store) => store.id).sort().join(",");
+  useEffect(() => {
+    const storeIds = catalogStoreIds ? catalogStoreIds.split(",") : [];
+    if (!storeIds.length) { setStoreRatings({}); return; }
+    const supabase = createClient();
+    if (!supabase) return;
+    let active = true;
+    void supabase.rpc("store_rating_summaries", { p_store_ids: storeIds }).then(({ data }) => {
+      if (!active || !data) return;
+      setStoreRatings(Object.fromEntries(data.map((rating: { store_id: string; average_rating: number | string; rating_count: number | string }) => [rating.store_id, { average: Number(rating.average_rating), count: Number(rating.rating_count) }])));
+    });
+    return () => { active = false; };
+  }, [catalogStoreIds]);
   const pickupStores = useMemo(() => {
     const pickupStoreIds = new Set(storeCatalog.map((store) => store.id));
     return stores.filter((store) => pickupStoreIds.has(store.id));
@@ -483,7 +497,7 @@ export default function Home() {
           const storeCoordinate = coordinatesByStoreId.get(store.id);
           const distance = nearbySort && userLocation && storeCoordinate ? formatDistance(distanceMeters(userLocation, storeCoordinate)) : null;
           return <article className="pickup-store-card store-detail-slide" key={store.id} aria-current={isOpen ? "true" : undefined}>
-            <div className="pickup-store-summary store-detail-heading"><span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><button type="button" className="pickup-store-chevron" onClick={closeStoreDetails}>접기</button></span></div>
+            <div className="pickup-store-summary store-detail-heading"><span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small>{storeRatings[store.id] && <span className="store-rating-badge"><Star size={13} fill="currentColor"/> {storeRatings[store.id].average.toFixed(1)} <small>({storeRatings[store.id].count})</small></span>}</span><button type="button" className="pickup-store-chevron" onClick={closeStoreDetails}>접기</button></span></div>
             <div className="store-product-details">{store.products.map((product) => {
               const imageIsUrl = isProductImageUrl(product.image);
               const tiers = product.priceTiers ?? [];
@@ -505,7 +519,7 @@ export default function Home() {
           const distance = nearbySort && userLocation && storeCoordinate ? formatDistance(distanceMeters(userLocation, storeCoordinate)) : null;
           return <article className={`pickup-store-card${isOpen ? " is-open" : ""}`} key={store.id}>
             <button className="pickup-store-summary" aria-expanded={isOpen} onClick={() => { if (!isOpen) track("store_detail_opened", { store_id: store.id }); setOpenStoreId(isOpen ? null : store.id); }}>
-              <span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small></span><span className="pickup-store-chevron">{isOpen ? "접기" : "자세히"}<ArrowRight size={15}/></span></span>
+              <span className="pickup-store-heading"><span><b>{store.name}</b><small><MapPin size={12}/>{store.area}{distance ? ` · ${distance}` : ""} · 과일 {store.products.length}종</small>{storeRatings[store.id] && <span className="store-rating-badge"><Star size={13} fill="currentColor"/> {storeRatings[store.id].average.toFixed(1)} <small>({storeRatings[store.id].count})</small></span>}</span><span className="pickup-store-chevron">{isOpen ? "접기" : "자세히"}<ArrowRight size={15}/></span></span>
               <span className="fruit-preview">{preview.map((product) => <span className="fruit-preview-item" key={product.id}><span className="fruit-preview-image"><ProductImage image={product.image} fallback={product.image}/></span><span className="fruit-preview-copy"><b>{product.name}</b><small>{won(product.price)}원</small></span></span>)}{store.products.length > preview.length && <span className="fruit-preview-more">+{store.products.length - preview.length}</span>}</span>
               <span className="pickup-store-hint">과일을 눌러 상품과 예약 정보를 확인하세요</span>
             </button>
