@@ -130,6 +130,7 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
   const [notice, setNotice] = useState("");
   const [lineQuantities, setLineQuantities] = useState<Record<string, Record<string, number>>>({});
   const [refundReason, setRefundReason] = useState<Record<string, string>>({});
+  const [refundBusy, setRefundBusy] = useState<string | null>(null);
   const [confirmationNotes, setConfirmationNotes] = useState<Record<string, string>>({});
   const [draftResultTab, setDraftResultTab] = useState<"confirmed" | "unavailable">("confirmed");
   const [modifiedDraftOrders, setModifiedDraftOrders] = useState<Record<string, boolean>>({});
@@ -373,12 +374,22 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
   }
 
   async function finishCancellation(order: Order) {
+    if (refundBusy) return;
     if (!window.confirm("고객에게 환불 이체를 완료했나요? 확인하면 환불 내역과 취소 상태가 고객 화면에 표시됩니다.")) return;
     const supabase = createClient();
     if (!supabase) return;
-    const { error } = await supabase.from("refunds").insert({ order_id: order.id, reason: "quantity_unavailable", amount: order.total, message: "고객 취소 요청에 따라 주문 금액을 전액 환불했습니다.", transferred_at: new Date().toISOString() });
-    if (error) { setNotice(error.message); return; }
-    if (await updateOrder(order, { status: "refunded", cancel_reason: "customer_cancelled", cancellation_requested_at: order.cancellation_requested_at })) setNotice("환불 완료로 처리했어요.");
+    setRefundBusy(order.id);
+    try {
+      // 이미 이체 완료 기록이 있으면 다시 insert하지 않고 주문 상태 변경만 재시도합니다.
+      if (!order.refunds?.some((refund) => refund.transferred_at)) {
+        const { error } = await supabase.from("refunds").insert({ order_id: order.id, reason: "quantity_unavailable", amount: order.total, message: "고객 취소 요청에 따라 주문 금액을 전액 환불했습니다.", transferred_at: new Date().toISOString() });
+        if (error) { setNotice(error.message); return; }
+        await load();
+      }
+      if (await updateOrder(order, { status: "refunded", cancel_reason: "customer_cancelled", cancellation_requested_at: order.cancellation_requested_at })) setNotice("환불 완료로 처리했어요.");
+    } finally {
+      setRefundBusy(null);
+    }
   }
 
   async function markRefundTransferred(order: Order, refund: Refund) {
@@ -546,7 +557,7 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
       <div className="ops-payment-row"><span>입금자 <b>{order.depositor_name}</b></span><strong>{won(order.total)}원</strong></div>
       <div className="ops-transfer-instructions">입금 계좌: {order.payment_bank ? `${order.payment_bank} ${order.payment_account} · ${order.payment_account_holder}` : "계좌 설정 전 접수 주문"}</div>
       {!order.paid_at && order.status === "awaiting_payment" && <><button className="ops-action primary" onClick={() => void confirmDeposit(order)}><Check size={15}/>입금 확인</button><button className="ops-action danger" onClick={() => void markDepositUnconfirmed(order)}>입금 확인 불가</button></>}
-      {order.cancellation_requested_at && order.status !== "refunded" && <div className="ops-cancel-request"><span>고객 취소·환불 요청</span><button className="ops-action danger" onClick={() => void finishCancellation(order)}>환불 이체 완료 처리</button></div>}
+      {order.cancellation_requested_at && order.status !== "refunded" && <div className="ops-cancel-request"><span>고객 취소·환불 요청</span><button className="ops-action danger" disabled={refundBusy === order.id} onClick={() => void finishCancellation(order)}>환불 이체 완료 처리</button></div>}
       {order.refunds?.filter((refund) => !refund.transferred_at).map((refund) => <div className="ops-cancel-request" key={refund.id}><span>환불 이체 대기 · {won(refund.amount)}원<br/>{refund.message}</span><button className="ops-action danger" onClick={() => void markRefundTransferred(order, refund)}>환불 이체 완료 처리</button></div>)}
       {order.inventory_reviewed_at && ["slot_confirmed", "store_checking"].includes(order.status) && <div className="ops-transfer-instructions">상품별 1차 확정 완료 · 주문 집계 탭에서 검토하고 전체 확정할 수 있어요.</div>}
     </article>)}</div> : <div className="admin-empty">이 날짜에 입금 확인할 주문이 없어요.</div>}</section> : tab === "refunds" ? <section className="admin-card refund-manager"><h2>환불 대상과 수기 이체</h2><p className="admin-help">환불은 자동 송금되지 않아요. 슬롯 환불은 선착순 확정 결과에서 후순위 주문부터 모았고, 금액·계좌를 확인해 직접 이체한 다음 완료 처리해 주세요. 고객 화면에는 이체 완료 후에만 환불 내역이 표시돼요.</p>
