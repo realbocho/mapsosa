@@ -7,7 +7,7 @@ import { isProductImageUrl, won, type Product } from "@/lib/products";
 import { StoreMap, type StoreCoordinate, type StoreLocation } from "@/components/store-map";
 import { ProductImage } from "@/components/product-image";
 import { LegalLinks } from "@/components/legal-links";
-import { formatPickupDate, nextPickupDate, orderDeadlineTimestamp, type PickupDay } from "@/lib/pickup-dates";
+import { formatPickupDate, upcomingPickupDates, pickupDayForDate, orderDeadlineTimestamp, type PickupDay } from "@/lib/pickup-dates";
 import { AcquisitionSurvey } from "@/components/acquisition-survey";
 import { AnalyticsConsent } from "@/components/analytics-consent";
 import { newestOrderUpdate, orderUpdatesSeenKey } from "@/lib/order-notifications";
@@ -24,19 +24,12 @@ function formatDistance(meters: number) {
   return meters < 1000 ? `${Math.max(10, Math.round(meters / 10) * 10)}m` : `${(meters / 1000).toFixed(1)}km`;
 }
 
-function addDaysToDate(date: string, amount: number) {
-  const [year, month, day] = date.split("-").map(Number);
-  const value = new Date(Date.UTC(year, month - 1, day + amount));
-  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
-}
-
 export default function Home() {
   const pickupOptions = useMemo(() => {
-    const first = nextPickupDate("토요일");
-    return [first, addDaysToDate(first, 7)].map((date) => ({ day: "토요일" as PickupDay, date }));
+    return upcomingPickupDates(2).map((date) => ({ day: pickupDayForDate(date), date }));
   }, []);
   const [pickupDate, setPickupDate] = useState(() => pickupOptions[0].date);
-  const pickup: PickupDay = "토요일";
+  const pickup: PickupDay = pickupDayForDate(pickupDate);
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [stores, setStores] = useState<StoreLocation[]>([]);
   const [storeRatings, setStoreRatings] = useState<Record<string, { average: number; count: number }>>({});

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, CircleDollarSign, PackageCheck, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { formatPickupDate, nextPickupDate, slotConfirmationTimePassed, type PickupDay } from "@/lib/pickup-dates";
+import { formatPickupDate, upcomingPickupDates, slotConfirmationTimePassed, type PickupDay } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
 
 type Line = { id: string; quantity: number; proposed_quantity: number | null; confirmed_quantity: number | null; refund_quantity: number; refund_reason: string | null; unit_price: number; final_unit_price: number | null; products: { id: string; name: string; specification: string; type: "slot" | "instant"; slot_size: number | null; stores: { id: string; name: string } | null } | null };
@@ -22,12 +22,7 @@ function upcomingDates() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
   const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
   const today = new Date(Date.UTC(value("year"), value("month") - 1, value("day")));
-  const firstSaturday = nextPickupDate("토요일");
-  const [firstYear, firstMonth, firstDay] = firstSaturday.split("-").map(Number);
-  const customerDates = [0, 1].map((week) => {
-    const value = new Date(Date.UTC(firstYear, firstMonth - 1, firstDay + week * 7));
-    return { day: "토요일" as PickupDay, date: `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`, previous: false };
-  });
+  const customerDates = upcomingPickupDates(2).map((date) => ({ day: new Date(`${date}T00:00:00Z`).getUTCDay() === 3 ? "수요일" as PickupDay : "토요일" as PickupDay, date, previous: false }));
   const previousDate = new Date(today);
   for (let daysBack = 1; daysBack <= 7; daysBack += 1) {
     const candidate = new Date(today);
@@ -497,7 +492,7 @@ export function AdminOrders({ reloadKey = 0 }: { reloadKey?: number }) {
     <form className="admin-card admin-fields" onSubmit={(event) => void savePaymentSetting(event)}><h2>고객 입금 계좌 설정</h2><div className="admin-field-pair"><div className="admin-field"><label htmlFor="payment-bank">은행</label><input id="payment-bank" value={paymentSetting.bank_name} onChange={(event) => setPaymentSetting((value) => ({ ...value, bank_name: event.target.value }))} required/></div><div className="admin-field"><label htmlFor="payment-holder">예금주</label><input id="payment-holder" value={paymentSetting.account_holder} onChange={(event) => setPaymentSetting((value) => ({ ...value, account_holder: event.target.value }))} required/></div></div><div className="admin-field"><label htmlFor="payment-account">입금 계좌번호</label><input id="payment-account" value={paymentSetting.account_number} onChange={(event) => setPaymentSetting((value) => ({ ...value, account_number: event.target.value }))} inputMode="numeric" required/></div><div className="admin-field"><label htmlFor="payment-memo">입금 안내</label><input id="payment-memo" value={paymentSetting.memo} onChange={(event) => setPaymentSetting((value) => ({ ...value, memo: event.target.value }))}/></div><button className="admin-save" disabled={savingPayment}>{savingPayment ? "저장 중…" : "입금 계좌 저장"}</button></form>
     <section className="admin-card"><div className="ops-date-title"><div><h2>픽업 주문 운영</h2><p>{formatPickupDate(pickupDate)} 기준</p></div><button className="ops-refresh" onClick={() => void load()}><RefreshCw size={14}/>새로고침</button></div>
       <div className="ops-date-picker">{dates.filter(({ previous }) => !previous).map(({ day, date }) => <button key={date} className={pickupDate === date ? "selected" : ""} onClick={() => setPickupDate(date)}><b>{day}</b><small>{formatPickupDate(date)}</small></button>)}</div>
-      <label className="ops-history-date"><span>지난 픽업일 조회</span><input type="date" value={pickupDate} onChange={(event) => { const date = event.target.value; if (!date) return; const weekday = new Date(`${date}T00:00:00Z`).getUTCDay(); if (weekday !== 3 && weekday !== 6) { setNotice("과거 주문 기록은 수요일·토요일 날짜로 조회할 수 있어요."); return; } setNotice(""); setPickupDate(date); }}/><small>앞으로 운영은 매주 토요일이며, 달력에서 과거 수요일·토요일 기록을 조회할 수 있어요.</small></label>
+      <label className="ops-history-date"><span>지난 픽업일 조회</span><input type="date" value={pickupDate} onChange={(event) => { const date = event.target.value; if (!date) return; const weekday = new Date(`${date}T00:00:00Z`).getUTCDay(); if (weekday !== 3 && weekday !== 6) { setNotice("주문 기록은 수요일·토요일 날짜로 조회할 수 있어요."); return; } setNotice(""); setPickupDate(date); }}/><small>수요일과 토요일 운영을 표시하며, 달력에서 지난 픽업일 기록도 조회할 수 있어요.</small></label>
       <p className="admin-help">입금 확인 수량을 가게별 가격 구간에 반영하고, 픽업 전날 오전 11시부터 주문서를 발급할 수 있어요.</p>
       {notice && <div className="admin-notice">{notice}</div>}
       <div className="ops-tabs"><button className={tab === "summary" ? "selected" : ""} onClick={() => setTab("summary")}><PackageCheck size={14}/>주문 집계</button><button className={tab === "payment" ? "selected" : ""} onClick={() => setTab("payment")}><CircleDollarSign size={14}/>입금 확인</button><button className={tab === "refunds" ? "selected" : ""} onClick={() => setTab("refunds")}>환불 정리</button><button className={tab === "transfers" ? "selected" : ""} onClick={() => setTab("transfers")}>청과점 이체</button></div>

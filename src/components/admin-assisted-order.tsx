@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Minus, Plus, ShoppingBasket } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { formatPickupDate, nextPickupDate } from "@/lib/pickup-dates";
+import { formatPickupDate, upcomingPickupDates } from "@/lib/pickup-dates";
 import { won } from "@/lib/products";
 
 type Store = { id: string; name: string; area: string; active: boolean; closed_weekdays: number[] };
@@ -14,10 +14,7 @@ const SOURCES = [
   ["social_community", "SNS / 커뮤니티"], ["paid_ad", "광고"], ["store_offline", "가게 / 오프라인"],
   ["other", "기타"], ["unknown", "기억나지 않음"],
 ] as const;
-const firstSaturday = nextPickupDate("토요일");
-const [firstYear, firstMonth, firstDay] = firstSaturday.split("-").map(Number);
-const secondSaturdayDate = new Date(Date.UTC(firstYear, firstMonth - 1, firstDay + 7));
-const pickDates = [firstSaturday, `${secondSaturdayDate.getUTCFullYear()}-${String(secondSaturdayDate.getUTCMonth() + 1).padStart(2, "0")}-${String(secondSaturdayDate.getUTCDate()).padStart(2, "0")}`];
+const pickDates = upcomingPickupDates(2);
 
 export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -44,7 +41,7 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
     void supabase.rpc("weekly_campaign_catalog", { p_pickup_date: pickupDate }).then(({ data, error }) => {
       const rows = (data ?? []) as unknown as { product_id: string; store_id: string; store_name: string; store_area: string; name: string; specification: string; applied_quantity: number; tiers: { minimum_slots: number; unit_price: number }[] }[];
       setProducts(rows.map((row) => ({ id: row.product_id, store_id: row.store_id, name: row.name, specification: row.specification, consumer_price: row.tiers?.[0]?.unit_price ?? 0, type: "instant" as const, slot_size: null, active: true, applied_quantity: Number(row.applied_quantity ?? 0), tiers: row.tiers ?? [], stores: { id: row.store_id, name: row.store_name, area: row.store_area, active: true, closed_weekdays: [] } })));
-      if (error) { setNotice("해당 토요일 상품을 불러오지 못했어요: " + error.message); setNoticeError(true); }
+      if (error) { setNotice("해당 픽업일 상품을 불러오지 못했어요: " + error.message); setNoticeError(true); }
       setLoading(false);
     });
   }, [pickupDate]);
@@ -121,13 +118,13 @@ export function AdminAssistedOrder({ onCreated }: { onCreated?: () => void }) {
     {notice && <p className={"assisted-order-notice" + (noticeError ? " error" : "")} role="status">{!noticeError && <Check size={14}/>} {notice}</p>}
     {open && <form className="assisted-order-form" onSubmit={(event) => void submit(event)}>
       <div className="assisted-order-section-title"><b>1. 픽업일과 구매자</b><span>닉네임으로 같은 대리 구매자를 구분해요.</span></div>
-      <div className="admin-field"><label htmlFor="assisted-pickup">픽업 토요일</label><select id="assisted-pickup" value={pickupDate} onChange={(event) => { setPickupDate(event.target.value); setQuantities({}); }} required>{pickDates.map((date) => <option key={date} value={date}>{formatPickupDate(date)}</option>)}</select></div>
+      <div className="admin-field"><label htmlFor="assisted-pickup">픽업일</label><select id="assisted-pickup" value={pickupDate} onChange={(event) => { setPickupDate(event.target.value); setQuantities({}); }} required>{pickDates.map((date) => <option key={date} value={date}>{formatPickupDate(date)}</option>)}</select></div>
       <div className="admin-field"><label htmlFor="assisted-nickname">구매자 닉네임</label><input id="assisted-nickname" type="text" autoComplete="off" maxLength={40} value={buyerNickname} onChange={(event) => setBuyerNickname(event.target.value)} placeholder="구매자가 사용하는 닉네임" required/><small>같은 닉네임은 같은 구매자로 집계돼요. 동명이인은 구분되는 닉네임을 입력해 주세요.</small></div>
       <div className="admin-field"><label htmlFor="assisted-profile">연결할 맵소사 계정 (선택)</label><select id="assisted-profile" value={linkedProfile} onChange={(event) => setLinkedProfile(event.target.value)}><option value="">연결하지 않음 / 해당 계정 모름</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.nickname + " · 가입 " + new Date(customer.created_at).toLocaleDateString("ko-KR") + " · " + customer.id.slice(0, 6)}</option>)}</select><small>구매자가 기존 맵소사 계정 이용자임을 확인한 경우에만 연결하세요. 연결하면 직접 주문과 대리 주문을 같은 구매자로 분석해요.</small></div>
       <div className="admin-field"><label htmlFor="assisted-source">맵소사를 처음 알게 된 경로 (선택)</label><select id="assisted-source" value={source} onChange={(event) => setSource(event.target.value)}><option value="">확인하지 않음</option>{SOURCES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><small>구매자에게 확인한 경우에만 선택해 주세요.</small></div>
 
       <div className="assisted-order-section-title"><b>2. 주문 상품</b><span>가게별 상품 가격은 고객 화면과 동일하게 적용돼요.</span></div>
-      {loading ? <div className="admin-empty">상품을 불러오고 있어요…</div> : groupedProducts.length ? <div className="assisted-product-groups">{groupedProducts.map((group) => <div className="assisted-product-group" key={group.storeId}><h3>{group.storeName}</h3>{group.products.map((product) => { const nextTier = product.tiers.find((tier, index) => index > 0 && tier.minimum_slots > product.applied_quantity); return <div className="assisted-product-row" key={product.id}><div><b>{product.name}</b><small>{product.specification} · {won(unitPrice(product))}원 / 상품{nextTier ? ` · 다음 가격까지 ${Math.max(0, nextTier.minimum_slots - product.applied_quantity)}슬롯` : " · 현재 최저 가격 구간"}</small></div><div className="assisted-product-qty"><button type="button" onClick={() => changeQuantity(product.id, -1)} aria-label={product.name + " 수량 줄이기"}><Minus size={14}/></button><span>{quantities[product.id] ?? 0}</span><button type="button" onClick={() => changeQuantity(product.id, 1)} aria-label={product.name + " 수량 늘리기"}><Plus size={14}/></button></div></div>;})}</div>)}</div> : <div className="admin-empty">선택한 토요일에 등록된 공동구매 상품이 없어요. 상품 탭에서 먼저 등록해 주세요.</div>}
+      {loading ? <div className="admin-empty">상품을 불러오고 있어요…</div> : groupedProducts.length ? <div className="assisted-product-groups">{groupedProducts.map((group) => <div className="assisted-product-group" key={group.storeId}><h3>{group.storeName}</h3>{group.products.map((product) => { const nextTier = product.tiers.find((tier, index) => index > 0 && tier.minimum_slots > product.applied_quantity); return <div className="assisted-product-row" key={product.id}><div><b>{product.name}</b><small>{product.specification} · {won(unitPrice(product))}원 / 상품{nextTier ? ` · 다음 가격까지 ${Math.max(0, nextTier.minimum_slots - product.applied_quantity)}슬롯` : " · 현재 최저 가격 구간"}</small></div><div className="assisted-product-qty"><button type="button" onClick={() => changeQuantity(product.id, -1)} aria-label={product.name + " 수량 줄이기"}><Minus size={14}/></button><span>{quantities[product.id] ?? 0}</span><button type="button" onClick={() => changeQuantity(product.id, 1)} aria-label={product.name + " 수량 늘리기"}><Plus size={14}/></button></div></div>;})}</div>)}</div> : <div className="admin-empty">선택한 픽업일에 등록된 공동구매 품목이 없어요. 상품 탭에서 먼저 등록해 주세요.</div>}
 
       <div className="assisted-order-section-title"><b>3. 입금·환불 정보</b><span>고객이 알려준 정보를 입력해 주세요.</span></div>
       <div className="bank-input-grid assisted-bank-grid"><input aria-label="환불 은행명" placeholder="환불 은행명" value={refundBank} onChange={(event) => setRefundBank(event.target.value)} required/><input aria-label="환불 계좌번호" placeholder="환불 계좌번호" inputMode="numeric" value={refundAccount} onChange={(event) => setRefundAccount(event.target.value)} required/><input aria-label="환불 예금주" placeholder="환불 예금주" value={refundHolder} onChange={(event) => setRefundHolder(event.target.value)} required/><input aria-label="입금자명" placeholder="입금자명" value={depositorName} onChange={(event) => setDepositorName(event.target.value)} required/></div>

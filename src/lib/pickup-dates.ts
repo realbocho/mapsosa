@@ -22,6 +22,28 @@ export function nextPickupDate(day: PickupDay) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
 
+export function pickupDayForDate(date: string): PickupDay {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weekday === 3 ? "수요일" : "토요일";
+}
+
+export function upcomingPickupDates(count: number) {
+  const firstWednesday = nextPickupDate("수요일");
+  const firstSaturday = nextPickupDate("토요일");
+  const firstDate = firstWednesday < firstSaturday ? firstWednesday : firstSaturday;
+  const [year, month, day] = firstDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const dates: string[] = [];
+  while (dates.length < count) {
+    const weekday = date.getUTCDay();
+    if (weekday === 3 || weekday === 6) {
+      dates.push(`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`);
+    }
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  return dates;
+}
+
 export function formatPickupDate(date: string) {
   const [year, month, day] = date.split("-").map(Number);
   const value = new Date(Date.UTC(year, month - 1, day));

@@ -157,7 +157,7 @@ export default function AdminPage() {
   return <main className="admin-app">
     <header className="admin-top"><a href="/"><ArrowLeft size={17}/>고객 화면</a><b>맵소사 관리자</b><Store size={18} color="#2f8f4e"/></header>
     <div className="admin-content">
-      <div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>{section === "orders" ? "주문과 입금 관리" : section === "catalog" ? "가게와 상품 관리" : "데이터 분석"}</h1><p>{section === "orders" ? "픽업일별 주문 총량을 보고 입금과 확정 처리를 해요." : section === "catalog" ? "토요일 공동구매 품목 하나를 등록하고 가게별 가격 구간을 설정해요." : "입금 확인 고객, 재구매, 유입, 상품 수요를 살펴봐요."}</p></div>
+      <div className="admin-heading"><span className="section-kicker">MAPSOSA ADMIN</span><h1>{section === "orders" ? "주문과 입금 관리" : section === "catalog" ? "가게와 상품 관리" : "데이터 분석"}</h1><p>{section === "orders" ? "픽업일별 주문 총량을 보고 입금과 확정 처리를 해요." : section === "catalog" ? "수요일·토요일 품목을 여러 개 등록하고 가게별 가격 구간을 설정해요." : "입금 확인 고객, 재구매, 유입, 상품 수요를 살펴봐요."}</p></div>
       <div className="admin-main-tabs"><button className={section === "orders" ? "selected" : ""} onClick={() => setSection("orders")}>주문 · 입금</button><button className={section === "catalog" ? "selected" : ""} onClick={() => setSection("catalog")}>가게 · 상품</button><button className={section === "analytics" ? "selected" : ""} onClick={() => setSection("analytics")}>데이터 분석</button></div>
       {notice && <div className={error ? "admin-notice error" : "admin-notice"}>{!error && <Check size={14} style={{ verticalAlign: "middle", marginRight: 5 }}/>} {notice}</div>}
       {section === "orders" ? <><AdminAssistedOrder onCreated={() => setOrdersReloadKey((value) => value + 1)}/><AdminOrders reloadKey={ordersReloadKey}/></> : section === "analytics" ? <AdminAnalytics/> : <>
